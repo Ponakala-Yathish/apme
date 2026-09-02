@@ -110,6 +110,7 @@ Decisions replaced by newer ADRs.
 |-----|-------|------|
 | [ADR-006](ADR-006-ephemeral-venvs.md) | Ephemeral Per-Request venvs for Ansible Validator (Superseded by [ADR-022](ADR-022-session-scoped-venvs.md) and [ADR-031](ADR-031-unified-collection-cache.md)) | 2026-03 |
 | [ADR-035](ADR-035-secret-externalization.md) | Secret Externalization for Ansible Content (Proposed — implementation approach superseded by ADR-036) | 2026-03-23 |
+| [ADR-069](ADR-069-helm-simple-all-in-one.md) | Helm Chart Simple All-in-One Topology (EAP / Upstream) (Superseded by [ADR-054](ADR-054-production-deployment.md) (2026-09-02: in-repo Helm chart removed; use [apme-operator](https://github.com/ansible/apme-operator))) | 2026-08-03 |
 
 ## Creating New ADRs
 

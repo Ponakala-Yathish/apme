@@ -10,7 +10,7 @@ Draft — provisional decisions recorded below; final ADR may follow during impl
 
 Keyless Sigstore signing is performed **only by Gateway**. The OIDC identity presented to Fulcio is the **Gateway workload identity**, not an ambient identity from the caller's CI job unless that job identity is explicitly configured as the Gateway signing identity.
 
-**Default (recommended for Helm / OpenShift)**:
+**Default (recommended for operator / OpenShift)**:
 - Gateway obtains a short-lived OIDC token from its platform workload identity (Kubernetes service account token projected for Fulcio, cloud workload identity, or equivalent).
 - Trust policy issuer allowlist + issuer-to-identity mapping are configured to match that Gateway service account / workload subject (see AC-5).
 - CI pipelines request attestation via REST or `apme check --attest`; they verify that the returned Bundle was signed by the **trusted Gateway identity**, not by the CI job itself.
@@ -48,7 +48,7 @@ Gateway owns Subject Digest computation against an **immutable snapshot** it sta
 
 ### Offline / air-gapped mode
 
-Keyless Sigstore signing requires outbound OIDC, Fulcio, and Rekor access. Air-gapped deployments **must** configure keyed signing via `APME_SIGNING_KEY` (Helm Secret mount).
+Keyless Sigstore signing requires outbound OIDC, Fulcio, and Rekor access. Air-gapped deployments **must** configure keyed signing via `APME_SIGNING_KEY` (Kubernetes Secret mount).
 
 Verification when `APME_SIGSTORE_OFFLINE=true`:
 - **Keyed attestations**: verify signature against the configured trust-set public keys only; Rekor checks are skipped.
@@ -61,9 +61,18 @@ Live Rekor/Fulcio fetch for incomplete envelopes is allowed **only** when `APME_
 - Fulcio signing certificates are short-lived. For attestations within the retention window, `EXPIRED_CERTIFICATE` checks use the authenticated Rekor `integratedTime` (or bundled SET timestamp), **not** the verifier's current clock.
 - Gateway persists the Sigstore `trustedRoot` version used at signing alongside `verificationMaterial`. Retired Fulcio roots remain available for verification until all attestations signed under that root pass the retention window (default: 90 days).
 
-### Key management (Helm)
+### Key management (operator)
 
 Signing keys live in a Kubernetes Secret mounted read-only into the Gateway container (e.g., `/etc/apme/secrets/signing-key.pem`). Gateway reads the path from `APME_SIGNING_KEY`. Keys are never mounted into engine containers.
+
+For bootc deployments, keyed signing is a design requirement and is not
+available in the current quadlets. Before setting `APME_SIGNING_KEY`, the
+implementation must add a read-only host-directory mount to
+`apme-gateway.container` (for example,
+`Volume=/etc/apme/secrets:/etc/apme/secrets:ro`) and configure the variable to
+the mounted in-container path. Never mount the signing key into engine
+containers. The Gateway must fail clearly if the configured key path is not
+readable.
 
 Each keyed signer has a stable **key ID** (`keyid` in the envelope) derived from the public key fingerprint (see contract wire-format section for exact algorithm). Gateway persists the public key material in a verifier **trust set** keyed by `keyid`.
 

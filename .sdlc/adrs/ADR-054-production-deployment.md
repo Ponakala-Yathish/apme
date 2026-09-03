@@ -62,9 +62,11 @@ deployments are not supported.
 
 | K8s Resource | Containers | Scaling |
 |-------------|------------|---------|
-| Deployment (all-in-one) | engine, native, opa, ansible, gitleaks*, collection-health*, dep-audit*, galaxy-proxy, gateway, ui*, abbenay* | One replica maximum in operator v1 |
+| Deployment (all-in-one) | engine, native, opa, ansible, gitleaks*, collection-health*, dep-audit*, galaxy-proxy, gateway, ui*, abbenay* | One replica only in operator v1 (maximum 1; no horizontal scaling) |
 
-\* optional via operator configuration
+\* optional via operator configuration. Operator v1 does not ship an in-pod
+OpenTelemetry Collector; configure `OTEL_EXPORTER_OTLP_ENDPOINT` on workloads
+for an external collector (see `containers/observability/README.md`).
 
 The operator manages PostgreSQL as a separate, single-replica StatefulSet by
 default. An external PostgreSQL connection can be supplied through a Kubernetes

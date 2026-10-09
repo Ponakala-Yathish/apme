@@ -474,7 +474,9 @@ critical/high/medium/low.
   compare their scope enumeration and all-path requirements so a protected
   path cannot hide an unprotected path in another rule (for example, L047
   and L110 handling shared include contexts).
-- Test gaps for behaviors the code/docs claim
+- Test gaps for behaviors the code/docs claim; verify each regression test
+  reaches the changed logic and would fail without the fix (use a positive
+  control or the pre-fix behavior when practical)
 - Silent no-ops, dead branches, wrong defaults
 - **Dependencies pinned to intent** — version ranges, GitHub Action
   tags, base images, pip/uv specs (not tighter, not looser);

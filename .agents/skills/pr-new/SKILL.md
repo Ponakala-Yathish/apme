@@ -153,7 +153,11 @@ artifact type, translate it:
 
 5. **Are dependencies and versions pinned to intent?** Check every
    version range, action tag, and base image. Does each one express
-   what you actually mean — not tighter, not looser? For workflow
+   what you actually mean — not tighter, not looser? When updating a tool
+   used by CI, compare all of its resolution sources: CI requirements,
+   project lockfiles, developer install commands, and agent setup guides.
+   Keep the resolved versions aligned or document the intentional split.
+   For workflow
    checkouts: if the job has write scopes (`packages: write`, etc.)
    or runs untrusted/repo scripts after checkout, is
    `persist-credentials: false` set so `GITHUB_TOKEN` is not left

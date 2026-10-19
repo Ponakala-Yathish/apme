@@ -570,10 +570,12 @@ def test_daemon_status_blocks_when_unverified_pid_port_is_unavailable(tmp_path: 
         patch("apme_engine.daemon.launcher._health_check", return_value=False),
         patch("apme_engine.daemon.launcher._address_port_bound", return_value=True),
         patch("apme_engine.daemon.launcher._stop_daemon_unlocked") as stop_mock,
-        pytest.raises(RuntimeError, match="in use or could not be checked"),
+        pytest.raises(RuntimeError, match="in use or could not be checked") as exc_info,
     ):
         daemon_status()
 
+    assert "Verify the process and port owner before stopping anything" in str(exc_info.value)
+    assert f"kill {4242}" not in str(exc_info.value)
     stop_mock.assert_not_called()
     assert state_file.exists()
 

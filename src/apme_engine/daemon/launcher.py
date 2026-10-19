@@ -1018,8 +1018,9 @@ def _daemon_status_unlocked() -> DaemonState | None:
             msg = (
                 f"A live process (pid {state.pid}) does not answer Engine health "
                 f"and cannot be verified for ownership. Its recorded Engine "
-                f"port is in use or could not be checked. Stop it manually "
-                f"(`kill {state.pid}`), remove "
+                f"port is in use or could not be checked. Verify the process "
+                f"and port owner before stopping anything; after confirming "
+                f"the state is stale and the port is free, remove "
                 f"`~/.apme-data/daemon.json` if it remains, then retry. "
                 f"Auto-start is blocked to avoid port conflicts."
             )

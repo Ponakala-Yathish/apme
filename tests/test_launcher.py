@@ -140,11 +140,8 @@ def test_check_port_available_does_not_skip_resolution_failures(
         fail_resolution,
     )
     with patch("apme_engine.daemon.launcher.socket.socket") as mock_socket:
-        mock_socket.return_value.__enter__.return_value.bind.side_effect = socket.gaierror(
-            socket.EAI_AGAIN,
-            "temporary failure",
-        )
         assert _check_port_available("temporary-dns.example", 50051) is False
+        mock_socket.assert_not_called()
 
 
 def test_bind_probe_resolves_address_matching_socket_family(

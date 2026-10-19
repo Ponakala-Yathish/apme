@@ -520,16 +520,16 @@ def _bind_probe(family: int, addr: str, port: int) -> bool | None:
 
     Returns:
         ``True`` if the bind succeeded (port free), ``False`` if the port is
-        in use, or ``None`` if *addr* is a wildcard or not assignable on this
-        host.
+        in use or *addr* cannot be resolved for the probe family, or ``None``
+        if *addr* is a wildcard or the address family is unavailable.
     """
     concrete = _resolved_concrete_bind_ip(addr, family)
     if concrete is None:
         if _is_wildcard_bind_addr(addr):
             return None
-        # DNS may have failed transiently; let the socket report that error
-        # instead of treating an unresolvable hostname's port as available.
-        concrete = addr
+        # An unresolved or family-mismatched address is not proof the port is
+        # free. Keep recovery conservative rather than dropping daemon state.
+        return False
     try:
         with socket.socket(family, socket.SOCK_STREAM) as sock:
             if family == socket.AF_INET6:

@@ -263,7 +263,7 @@ def _auth_cache_marker(scm_token: str | None, url_userpass: tuple[str, str] | No
     else:
         return ""
     # Process-local cache partition fingerprint — not password storage.
-    # BLAKE2 personalization domain-separates this from other digests.
+    # BLAKE2 personalization separates this from other BLAKE2 digest uses.
     # codeql[py/weak-sensitive-data-hashing]
     token_hash = hashlib.blake2b(
         material.encode(),

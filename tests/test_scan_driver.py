@@ -683,8 +683,8 @@ def test_auth_cache_marker_separates_url_userpass() -> None:
         person=b"apme-auth-cache",
     ).hexdigest()
     assert marker_a == f":auth:{expected}"
-    # Domain-separated from raw SHA-256 of the same material.
-    assert marker_a != f":auth:{hashlib.sha256(material.encode()).hexdigest()[:16]}"
+    unpersonalized = hashlib.blake2b(material.encode(), digest_size=8).hexdigest()
+    assert marker_a != f":auth:{unpersonalized}"
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]

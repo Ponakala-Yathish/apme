@@ -442,14 +442,15 @@ def _resolved_concrete_bind_ip(addr: str, family: int) -> str | None:
 def _local_addresses(family: int) -> frozenset[str]:
     """Best-effort set of assigned local addresses for *family*.
 
-    Includes only candidates that can be bound, except candidates retained
-    when the address family itself is unavailable. Never returns wildcards.
+    Includes bindable candidates. Retains the loopback sentinel when its bind
+    fails with ``EADDRNOTAVAIL`` and candidates when the family is unsupported,
+    so callers can preserve an unverified-family signal. Never returns wildcards.
 
     Args:
         family: ``socket.AF_INET`` or ``socket.AF_INET6``.
 
     Returns:
-        Concrete local IP strings suitable for ``sock.bind()``.
+        Address strings to probe, including retained unverified sentinels.
     """
     loopback = "127.0.0.1" if family == socket.AF_INET else "::1"
     found: set[str] = {loopback}
@@ -484,9 +485,9 @@ def _local_addresses(family: int) -> frozenset[str]:
                     sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
                 sock.bind((addr, 0))
         except OSError as exc:
-            # Preserve candidates for a disabled family so callers know the
-            # address could not be verified; discard addresses no longer local.
-            if exc.errno == errno.EAFNOSUPPORT:
+            # Keep disabled-family candidates and the loopback sentinel as an
+            # unverified signal; discard stale non-loopback addresses.
+            if exc.errno == errno.EAFNOSUPPORT or (addr == loopback and exc.errno == errno.EADDRNOTAVAIL):
                 bindable.add(addr)
         else:
             bindable.add(addr)

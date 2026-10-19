@@ -411,9 +411,10 @@ resolution failures and recovery so an unavailable lookup cannot be
 misreported as a free port or retried with a guessed family.
 For best-effort local-address discovery, verify candidates with an
 ephemeral bind before adding them to wildcard probe targets. Drop
-addresses rejected as no longer local, but retain candidates when the
-family itself is unsupported so stale-state checks can treat them as
-unverified instead of free.
+non-loopback candidates rejected as no longer local, but retain the
+loopback sentinel when it fails with ``EADDRNOTAVAIL`` and candidates
+when the family itself is unsupported. Stale-state checks must treat
+these as unverified instead of free.
 When a function degrades to identity (return original / omit from
 diffs / skip and continue) on failure, construct the caller path that
 reports "already clean", "idempotent", or "success" from an empty

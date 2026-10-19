@@ -382,6 +382,35 @@ def test_local_addresses_filter_candidates_that_cannot_be_bound(monkeypatch: Mon
     assert _local_addresses(socket.AF_INET) == frozenset({"127.0.0.1", route_address})
 
 
+def test_ipv6_wildcard_keeps_unavailable_loopback_as_unverified(monkeypatch: MonkeyPatch) -> None:
+    """A missing IPv6 loopback bind must remain visible to stale-state checks.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    monkeypatch.setattr(
+        "apme_engine.daemon.launcher.socket.getaddrinfo",
+        lambda *args, **kwargs: [],
+    )
+
+    def make_socket(family: int, sock_type: int, *args: object, **kwargs: object) -> MagicMock:
+        mock_socket = MagicMock()
+        entered = mock_socket.__enter__.return_value
+        entered.getsockname.return_value = ("::", 0, 0, 0) if family == socket.AF_INET6 else ("0.0.0.0", 0)
+
+        def bind(address: tuple[str, int]) -> None:
+            if address[0] == "::1":
+                raise OSError(errno.EADDRNOTAVAIL, "Cannot assign requested address")
+
+        entered.bind.side_effect = bind
+        return mock_socket
+
+    monkeypatch.setattr("apme_engine.daemon.launcher.socket.socket", make_socket)
+
+    assert _local_addresses(socket.AF_INET6) == frozenset({"::1"})
+    assert _check_port_available("::", 50051, fail_on_unprobeable=True) is False
+
+
 def test_check_port_available_skips_unsupported_ipv6_family(monkeypatch: MonkeyPatch) -> None:
     """IPv6-disabled hosts still probe IPv4 targets for ``::`` wildcards.
 

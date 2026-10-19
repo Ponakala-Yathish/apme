@@ -10,7 +10,7 @@ argument-hint: "[branch-name] [--title 'PR title']"
 user-invocable: true
 metadata:
   author: APME Team
-  version: 1.4.0
+  version: 1.5.0
 ---
 
 # PR New
@@ -409,6 +409,11 @@ dual-stack DNS answers in both answer orders. Verify every resolved
 address is probed with its matching socket family, and simulate
 resolution failures and recovery so an unavailable lookup cannot be
 misreported as a free port or retried with a guessed family.
+For best-effort local-address discovery, verify candidates with an
+ephemeral bind before adding them to wildcard probe targets. Drop
+addresses rejected as no longer local, but retain candidates when the
+family itself is unsupported so stale-state checks can treat them as
+unverified instead of free.
 When a function degrades to identity (return original / omit from
 diffs / skip and continue) on failure, construct the caller path that
 reports "already clean", "idempotent", or "success" from an empty

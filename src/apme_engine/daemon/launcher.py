@@ -442,7 +442,8 @@ def _resolved_concrete_bind_ip(addr: str, family: int) -> str | None:
 def _local_addresses(family: int) -> frozenset[str]:
     """Best-effort set of assigned local addresses for *family*.
 
-    Always includes the loopback address. Never returns wildcard hosts.
+    Includes only candidates that can be bound, except candidates retained
+    when the address family itself is unavailable. Never returns wildcards.
 
     Args:
         family: ``socket.AF_INET`` or ``socket.AF_INET6``.
@@ -474,7 +475,22 @@ def _local_addresses(family: int) -> frozenset[str]:
                 found.add(raw_ip)
     except OSError:
         pass
-    return frozenset(found)
+
+    bindable: set[str] = set()
+    for addr in found:
+        try:
+            with socket.socket(family, socket.SOCK_STREAM) as sock:
+                if family == socket.AF_INET6:
+                    sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+                sock.bind((addr, 0))
+        except OSError as exc:
+            # Preserve candidates for a disabled family so callers know the
+            # address could not be verified; discard addresses no longer local.
+            if exc.errno == errno.EAFNOSUPPORT:
+                bindable.add(addr)
+        else:
+            bindable.add(addr)
+    return frozenset(bindable)
 
 
 def _probe_targets(host: str) -> list[tuple[int, str]]:
@@ -519,8 +535,8 @@ def _bind_probe(family: int, addr: str, port: int) -> bool | None:
 
     Returns:
         ``True`` if the bind succeeded (port free), ``False`` if the port is
-        in use or *addr* cannot be verified on this host, or ``None`` if
-        *addr* is a wildcard or the address family is unavailable.
+        in use or *addr* cannot resolve to the requested family, or ``None``
+        if *addr* is a wildcard or the address/family is unavailable to probe.
     """
     concrete = _resolved_concrete_bind_ip(addr, family)
     if concrete is None:
@@ -535,9 +551,9 @@ def _bind_probe(family: int, addr: str, port: int) -> bool | None:
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
             sock.bind((concrete, port))
     except OSError as exc:
-        # A disabled family is unprobeable; an unavailable concrete address
-        # is not evidence that a recorded daemon port is free.
-        if exc.errno == errno.EAFNOSUPPORT:
+        # An unavailable address or family is unprobeable, not proof that a
+        # recorded daemon port is free.
+        if exc.errno in {errno.EADDRNOTAVAIL, errno.EAFNOSUPPORT}:
             return None
         return False
     return True
@@ -555,9 +571,9 @@ def _check_port_available(host: str, port: int, *, fail_on_unprobeable: bool = F
     Args:
         host: Host to probe.
         port: TCP port number.
-        fail_on_unprobeable: Treat unsupported address families as unavailable.
-            Stale-daemon checks use this to avoid deleting state without
-            verifying every target.
+        fail_on_unprobeable: Treat unavailable addresses and families as
+            unavailable. Stale-daemon checks use this to avoid deleting state
+            without verifying every target.
 
     Returns:
         True when no probeable target reports a conflict. Resolution failures

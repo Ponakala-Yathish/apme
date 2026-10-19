@@ -253,7 +253,8 @@ def test_check_port_available_treats_unavailable_address_as_unverified(
             errno.EADDRNOTAVAIL,
             "Cannot assign requested address",
         )
-        assert _check_port_available("stale-dns.example", 50051) is False
+        assert _check_port_available("stale-dns.example", 50051) is True
+        assert _check_port_available("stale-dns.example", 50051, fail_on_unprobeable=True) is False
         assert _address_port_bound("stale-dns.example:50051") is True
 
 
@@ -347,6 +348,38 @@ def test_local_addresses_exclude_wildcard_ips(monkeypatch: MonkeyPatch) -> None:
                 0,
             )
             assert _local_addresses(family) == frozenset({loopback})
+
+
+def test_local_addresses_filter_candidates_that_cannot_be_bound(monkeypatch: MonkeyPatch) -> None:
+    """Stale hostname results are removed from wildcard probe candidates.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    stale_address = "192.0.2.20"
+    route_address = "192.0.2.30"
+    monkeypatch.setattr(
+        "apme_engine.daemon.launcher.socket.getaddrinfo",
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (stale_address, 0))],
+    )
+
+    def make_socket(family: int, sock_type: int, *args: object, **kwargs: object) -> MagicMock:
+        mock_socket = MagicMock()
+        entered = mock_socket.__enter__.return_value
+        if sock_type == socket.SOCK_DGRAM:
+            entered.getsockname.return_value = (route_address, 0)
+        else:
+
+            def bind(address: tuple[str, int]) -> None:
+                if address[0] == stale_address:
+                    raise OSError(errno.EADDRNOTAVAIL, "Cannot assign requested address")
+
+            entered.bind.side_effect = bind
+        return mock_socket
+
+    monkeypatch.setattr("apme_engine.daemon.launcher.socket.socket", make_socket)
+
+    assert _local_addresses(socket.AF_INET) == frozenset({"127.0.0.1", route_address})
 
 
 def test_check_port_available_skips_unsupported_ipv6_family(monkeypatch: MonkeyPatch) -> None:

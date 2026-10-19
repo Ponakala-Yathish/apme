@@ -10,7 +10,7 @@ argument-hint: "[branch-name] [--title 'PR title']"
 user-invocable: true
 metadata:
   author: APME Team
-  version: 1.5.0
+  version: 1.6.0
 ---
 
 # PR New
@@ -415,6 +415,10 @@ non-loopback candidates rejected as no longer local, but retain the
 loopback sentinel when it fails with ``EADDRNOTAVAIL`` and candidates
 when the family itself is unsupported. Stale-state checks must treat
 these as unverified instead of free.
+For durable state that records a hostname, simulate DNS changing between
+state creation and recovery. Current resolver answers cannot prove where the
+process originally bound; persist the original targets or fail closed when
+no address snapshot exists.
 When a function degrades to identity (return original / omit from
 diffs / skip and continue) on failure, construct the caller path that
 reports "already clean", "idempotent", or "success" from an empty

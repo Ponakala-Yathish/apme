@@ -199,7 +199,8 @@ def test_check_port_available_does_not_skip_resolution_failures(
         assert _check_port_available("temporary-dns.example", 50051) is False
         mock_socket.assert_not_called()
     assert _address_port_bound("temporary-dns.example:50051") is True
-    assert resolve_mock.call_count == 2
+    # Recovery must not trust a fresh hostname lookup for an older daemon.
+    assert resolve_mock.call_count == 1
 
 
 def test_check_port_available_recovers_from_transient_resolution_failure(
@@ -612,8 +613,8 @@ def test_daemon_status_removes_stale_state_when_port_free(tmp_path: Path, monkey
     assert not state_file.exists()
 
 
-def test_daemon_status_blocks_when_unverified_pid_port_is_unavailable(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    """Unverified live PID with a bound or uncheckable Engine port blocks auto-start.
+def test_daemon_status_blocks_when_hostname_target_cannot_be_verified(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    """A hostname cannot prove where an unverified daemon originally bound.
 
     Args:
         tmp_path: Pytest temporary directory.
@@ -626,7 +627,7 @@ def test_daemon_status_blocks_when_unverified_pid_port_is_unavailable(tmp_path: 
         json.dumps(
             {
                 "pid": 4242,
-                "engine": "127.0.0.1:50051",
+                "engine": "daemon.example:50051",
                 "version": "0.1.0",
                 "started_at": "2026-08-03T00:00:00Z",
             }
@@ -640,7 +641,6 @@ def test_daemon_status_blocks_when_unverified_pid_port_is_unavailable(tmp_path: 
     with (
         patch("apme_engine.daemon.launcher._pid_alive", return_value=True),
         patch("apme_engine.daemon.launcher._health_check", return_value=False),
-        patch("apme_engine.daemon.launcher._address_port_bound", return_value=True),
         patch("apme_engine.daemon.launcher._stop_daemon_unlocked") as stop_mock,
         pytest.raises(RuntimeError, match="in use or could not be checked") as exc_info,
     ):

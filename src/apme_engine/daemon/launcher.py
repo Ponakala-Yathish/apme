@@ -602,10 +602,17 @@ def _address_port_bound(address: str) -> bool:
 
     Returns:
         True when the port is in use, cannot be probed, or the address cannot
-        be parsed.
+        be parsed. Hostnames are treated as unverified because state does not
+        store the original DNS answers used by the daemon.
     """
     host, _, port_s = address.rpartition(":")
     if not host or not port_s.isdigit():
+        return True
+    try:
+        ipaddress.ip_address(_unbracket_host(host))
+    except ValueError:
+        # A hostname's current answers cannot prove where the daemon bound
+        # when its state was written; avoid deleting that state on a new DNS set.
         return True
     return not _check_port_available(host, int(port_s), fail_on_unprobeable=True)
 

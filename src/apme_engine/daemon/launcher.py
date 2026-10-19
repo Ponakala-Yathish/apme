@@ -369,7 +369,7 @@ def _resolved_bind_ips(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6
             if not isinstance(raw_ip, str):
                 continue
             try:
-                found.append(ipaddress.ip_address(raw_ip.split("%", 1)[0]))
+                found.append(ipaddress.ip_address(raw_ip))
             except ValueError:
                 continue
     except OSError:
@@ -539,7 +539,7 @@ def _bind_probe(family: int, addr: str, port: int) -> bool | None:
     return True
 
 
-def _check_port_available(host: str, port: int) -> bool:
+def _check_port_available(host: str, port: int, *, fail_on_unprobeable: bool = False) -> bool:
     """Return True if *port* on *host* is free (bind succeeds).
 
     Uses ``bind()`` instead of ``connect()`` so the check works for
@@ -551,22 +551,25 @@ def _check_port_available(host: str, port: int) -> bool:
     Args:
         host: Host to probe.
         port: TCP port number.
+        fail_on_unprobeable: Treat unsupported address families as unavailable.
+            Stale-daemon checks use this to avoid deleting state without
+            verifying every target.
 
     Returns:
-        True when the port is available (bind succeeds on every probeable
-        local address for *host*). Resolution failures are treated as
-        unavailable, not as evidence that the port is free.
+        True when no probeable target reports a conflict. Resolution failures
+        always yield False; when *fail_on_unprobeable* is set, any target that
+        cannot be probed also yields False.
     """
     targets = _probe_targets(host)
     if not targets:
         return False
     for family, addr in targets:
         result = _bind_probe(family, addr, port)
-        if result is False:
+        if result is False or (result is None and fail_on_unprobeable):
             return False
-    # Unprobeable addresses (``None``) are skipped. If every target was
-    # unprobeable (e.g. IPv6 disabled for ``::``), defer to the daemon's
-    # real bind rather than inventing a false conflict.
+    # The default startup check skips unsupported families and relies on the
+    # remaining probeable addresses. If none can be probed, defer to the
+    # daemon's real bind rather than inventing a false conflict.
     return True
 
 
@@ -583,7 +586,7 @@ def _address_port_bound(address: str) -> bool:
     host, _, port_s = address.rpartition(":")
     if not host or not port_s.isdigit():
         return True
-    return not _check_port_available(host, int(port_s))
+    return not _check_port_available(host, int(port_s), fail_on_unprobeable=True)
 
 
 def _assert_ports_free(host: str, ports: dict[str, int]) -> None:

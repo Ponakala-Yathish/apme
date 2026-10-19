@@ -17,8 +17,8 @@ from apme_engine.daemon.launcher import (
     DaemonState,
     _address_port_bound,
     _assert_ports_free,
-    _bind_probe,
     _assigned_interface_addresses,
+    _bind_probe,
     _check_port_available,
     _local_addresses,
     _probe_targets,
@@ -342,6 +342,7 @@ def test_local_addresses_exclude_wildcard_ips(monkeypatch: MonkeyPatch) -> None:
     Args:
         monkeypatch: Pytest monkeypatch fixture.
     """
+    monkeypatch.setattr("apme_engine.daemon.launcher._assigned_interface_addresses", lambda _family: set())
     for family, wildcard, loopback, sockaddr in (
         (socket.AF_INET, "0.0.0.0", "127.0.0.1", ("0.0.0.0", 0)),
         (socket.AF_INET6, "::", "::1", ("::", 0, 0, 0)),
@@ -374,6 +375,7 @@ def test_local_addresses_filter_candidates_that_cannot_be_bound(monkeypatch: Mon
     """
     stale_address = "192.0.2.20"
     route_address = "192.0.2.30"
+    monkeypatch.setattr("apme_engine.daemon.launcher._assigned_interface_addresses", lambda _family: set())
     monkeypatch.setattr(
         "apme_engine.daemon.launcher.socket.getaddrinfo",
         lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (stale_address, 0))],
@@ -577,6 +579,9 @@ def test_wildcard_probe_includes_secondary_interface_addresses(monkeypatch: Monk
         "apme_engine.daemon.launcher.socket.getaddrinfo",
         lambda *args: [],
     )
+    mock_socket = MagicMock()
+    mock_socket.__enter__.return_value.getsockname.return_value = ("0.0.0.0", 0)
+    monkeypatch.setattr("apme_engine.daemon.launcher.socket.socket", lambda *args, **kwargs: mock_socket)
 
     ipv4_addresses = _local_addresses(socket.AF_INET)
     assert secondary <= ipv4_addresses

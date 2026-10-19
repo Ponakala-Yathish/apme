@@ -340,22 +340,6 @@ def _unbracket_host(host: str) -> str:
     return host
 
 
-def _is_unspecified_ipv6(host: str) -> bool:
-    """Return True when *host* is an IPv6 unspecified (all-interfaces) address.
-
-    Args:
-        host: Host string, optionally bracketed.
-
-    Returns:
-        True for ``::``, ``0:0:0:0:0:0:0:0``, and equivalent expanded forms.
-    """
-    try:
-        address = ipaddress.ip_address(_unbracket_host(host))
-    except ValueError:
-        return False
-    return isinstance(address, ipaddress.IPv6Address) and address.is_unspecified
-
-
 def _resolved_bind_ips(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     """Resolve *host* to IP addresses the kernel would use for bind/connect.
 
@@ -420,21 +404,6 @@ def _is_wildcard_bind_addr(addr: str) -> bool:
     if addr in _WILDCARD_IPV4 or addr in _WILDCARD_IPV6:
         return True
     return any(ip.is_unspecified for ip in _resolved_bind_ips(addr))
-
-
-def _is_ipv4_wildcard_host(host: str) -> bool:
-    """Return True when *host* is an IPv4 all-interfaces bind target.
-
-    Args:
-        host: Bind host from a listen address or probe target.
-
-    Returns:
-        True for ``''`` / ``0.0.0.0`` and equivalent IPv4 unspecified forms.
-    """
-    if host in _WILDCARD_IPV4:
-        return True
-    ips = _resolved_bind_ips(host)
-    return bool(ips) and all(isinstance(ip, ipaddress.IPv4Address) and ip.is_unspecified for ip in ips)
 
 
 def _resolved_concrete_bind_ip(addr: str, family: int) -> str | None:
@@ -507,27 +476,38 @@ def _local_addresses(family: int) -> frozenset[str]:
 def _probe_targets(host: str) -> list[tuple[int, str]]:
     """Resolve *host* into concrete ``(family, address)`` bind probe targets.
 
-    Wildcard hosts expand to every known local address so a listener on a
-    non-loopback interface still fails the check, without ever binding
-    ``''`` / ``0.0.0.0`` / ``::``. IPv6 wildcards also probe local IPv4
-    addresses because dual-stack ``::`` listeners accept IPv4 traffic.
+    Each resolved unspecified address expands to concrete local addresses so
+    wildcard listeners never reach ``sock.bind()``. IPv6 wildcards also probe
+    local IPv4 addresses because dual-stack ``::`` listeners accept IPv4
+    traffic. Hostnames probe every resolved address in its matching family.
 
     Args:
         host: Host from a gRPC listen address or caller-supplied bind target.
 
     Returns:
-        One or more ``(address_family, ip)`` pairs to probe.
+        ``(address_family, ip)`` pairs to probe. If name resolution fails,
+        retain the hostname as a candidate so the bind reports the resolver
+        error instead of treating the port as free.
     """
-    if _is_wildcard_bind_addr(host):
-        # IPv4 wildcards stay on AF_INET; IPv6 / unspecified forms probe both.
-        if _is_ipv4_wildcard_host(host):
-            return [(socket.AF_INET, addr) for addr in sorted(_local_addresses(socket.AF_INET))]
-        return _ipv6_wildcard_probe_targets()
-    if host.startswith("[") and host.endswith("]"):
-        return [(socket.AF_INET6, host[1:-1])]
-    if ":" in host:
-        return [(socket.AF_INET6, host)]
-    return [(socket.AF_INET, host)]
+    resolved = _resolved_bind_ips(host)
+    if not resolved:
+        candidate = _unbracket_host(host)
+        family = (
+            socket.AF_INET6 if (host.startswith("[") and host.endswith("]")) or ":" in candidate else socket.AF_INET
+        )
+        return [(family, candidate)]
+
+    targets: list[tuple[int, str]] = []
+    for ip in resolved:
+        if ip.is_unspecified:
+            if isinstance(ip, ipaddress.IPv4Address):
+                targets.extend((socket.AF_INET, addr) for addr in sorted(_local_addresses(socket.AF_INET)))
+            else:
+                targets.extend(_ipv6_wildcard_probe_targets())
+        else:
+            family = socket.AF_INET6 if isinstance(ip, ipaddress.IPv6Address) else socket.AF_INET
+            targets.append((family, str(ip)))
+    return list(dict.fromkeys(targets))
 
 
 def _bind_probe(family: int, addr: str, port: int) -> bool | None:
@@ -545,7 +525,11 @@ def _bind_probe(family: int, addr: str, port: int) -> bool | None:
     """
     concrete = _resolved_concrete_bind_ip(addr, family)
     if concrete is None:
-        return None
+        if _is_wildcard_bind_addr(addr):
+            return None
+        # DNS may have failed transiently; let the socket report that error
+        # instead of treating an unresolvable hostname's port as available.
+        concrete = addr
     try:
         with socket.socket(family, socket.SOCK_STREAM) as sock:
             if family == socket.AF_INET6:

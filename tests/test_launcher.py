@@ -82,6 +82,71 @@ def test_probe_targets_expands_alternate_ipv4_wildcards() -> None:
         assert all(addr not in {"", "0", "0.0.0.0", "0x0"} for _, addr in targets)
 
 
+def test_probe_targets_include_each_resolved_hostname_family(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Hostname probes include IPv6-only and dual-stack DNS answers.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    resolutions = {
+        "v6-only.example": [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::10", 0, 0, 0)),
+        ],
+        "dual-stack.example": [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::10", 0, 0, 0)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.0.2.10", 0)),
+        ],
+        "mixed-wildcard.example": [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("0.0.0.0", 0)),
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::20", 0, 0, 0)),
+        ],
+    }
+    monkeypatch.setattr(
+        "apme_engine.daemon.launcher.socket.getaddrinfo",
+        lambda host, *args, **kwargs: resolutions[host],
+    )
+
+    assert _probe_targets("v6-only.example") == [(socket.AF_INET6, "2001:db8::10")]
+    assert _probe_targets("dual-stack.example") == [
+        (socket.AF_INET6, "2001:db8::10"),
+        (socket.AF_INET, "192.0.2.10"),
+    ]
+    monkeypatch.setattr(
+        "apme_engine.daemon.launcher._local_addresses",
+        lambda family: frozenset({"192.0.2.20"}) if family == socket.AF_INET else frozenset({"2001:db8::30"}),
+    )
+    assert _probe_targets("mixed-wildcard.example") == [
+        (socket.AF_INET, "192.0.2.20"),
+        (socket.AF_INET6, "2001:db8::20"),
+    ]
+
+
+def test_check_port_available_does_not_skip_resolution_failures(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A DNS failure must not make an unknown hostname's port look free.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+
+    def fail_resolution(*args: object, **kwargs: object) -> list[tuple[object, ...]]:
+        raise socket.gaierror(socket.EAI_AGAIN, "temporary failure")
+
+    monkeypatch.setattr(
+        "apme_engine.daemon.launcher.socket.getaddrinfo",
+        fail_resolution,
+    )
+    with patch("apme_engine.daemon.launcher.socket.socket") as mock_socket:
+        mock_socket.return_value.__enter__.return_value.bind.side_effect = socket.gaierror(
+            socket.EAI_AGAIN,
+            "temporary failure",
+        )
+        assert _check_port_available("temporary-dns.example", 50051) is False
+
+
 def test_bind_probe_resolves_address_matching_socket_family(
     monkeypatch: MonkeyPatch,
 ) -> None:
@@ -114,11 +179,34 @@ def test_bind_probe_resolves_address_matching_socket_family(
         mock_socket.return_value.__enter__.return_value.bind.assert_called_once_with((expected_address, 50051))
 
 
-def test_local_addresses_exclude_wildcard_ips() -> None:
-    """Discovered local addresses never include all-interfaces hosts."""
-    forbidden = {"", "0.0.0.0", "::", "[::]"}
-    assert forbidden.isdisjoint(_local_addresses(socket.AF_INET))
-    assert forbidden.isdisjoint(_local_addresses(socket.AF_INET6))
+def test_local_addresses_exclude_wildcard_ips(monkeypatch: MonkeyPatch) -> None:
+    """Hostname and route resolution never add wildcard addresses as local.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    for family, wildcard, loopback, sockaddr in (
+        (socket.AF_INET, "0.0.0.0", "127.0.0.1", ("0.0.0.0", 0)),
+        (socket.AF_INET6, "::", "::1", ("::", 0, 0, 0)),
+    ):
+        monkeypatch.setattr(
+            "apme_engine.daemon.launcher.socket.getaddrinfo",
+            lambda *args, current_family=family, current_sockaddr=sockaddr, **kwargs: [
+                (
+                    current_family,
+                    socket.SOCK_STREAM,
+                    socket.IPPROTO_TCP,
+                    "",
+                    current_sockaddr,
+                )
+            ],
+        )
+        with patch("apme_engine.daemon.launcher.socket.socket") as mock_socket:
+            mock_socket.return_value.__enter__.return_value.getsockname.return_value = (
+                wildcard,
+                0,
+            )
+            assert _local_addresses(family) == frozenset({loopback})
 
 
 def test_check_port_available_skips_unsupported_ipv6_family(monkeypatch: MonkeyPatch) -> None:

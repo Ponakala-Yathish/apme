@@ -515,8 +515,8 @@ def _bind_probe(family: int, addr: str, port: int) -> bool | None:
 
     Returns:
         ``True`` if the bind succeeded (port free), ``False`` if the port is
-        in use or *addr* cannot be resolved for the probe family, or ``None``
-        if *addr* is a wildcard or the address family is unavailable.
+        in use or *addr* cannot be verified on this host, or ``None`` if
+        *addr* is a wildcard or the address family is unavailable.
     """
     concrete = _resolved_concrete_bind_ip(addr, family)
     if concrete is None:
@@ -531,8 +531,9 @@ def _bind_probe(family: int, addr: str, port: int) -> bool | None:
                 sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
             sock.bind((concrete, port))
     except OSError as exc:
-        # Address not present / family disabled — skip, do not treat as busy.
-        if exc.errno in {errno.EADDRNOTAVAIL, errno.EAFNOSUPPORT}:
+        # A disabled family is unprobeable; an unavailable concrete address
+        # is not evidence that a recorded daemon port is free.
+        if exc.errno == errno.EAFNOSUPPORT:
             return None
         return False
     return True

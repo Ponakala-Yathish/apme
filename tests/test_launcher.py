@@ -94,9 +94,16 @@ def test_probe_targets_include_each_resolved_hostname_family(
         "v6-only.example": [
             (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::10", 0, 0, 0)),
         ],
+        "v4-only.example": [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.0.2.11", 0)),
+        ],
         "dual-stack.example": [
             (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::10", 0, 0, 0)),
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.0.2.10", 0)),
+        ],
+        "dual-stack-v4-first.example": [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.0.2.10", 0)),
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::10", 0, 0, 0)),
         ],
         "mixed-wildcard.example": [
             (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("0.0.0.0", 0)),
@@ -109,9 +116,14 @@ def test_probe_targets_include_each_resolved_hostname_family(
     )
 
     assert _probe_targets("v6-only.example") == [(socket.AF_INET6, "2001:db8::10")]
+    assert _probe_targets("v4-only.example") == [(socket.AF_INET, "192.0.2.11")]
     assert _probe_targets("dual-stack.example") == [
         (socket.AF_INET6, "2001:db8::10"),
         (socket.AF_INET, "192.0.2.10"),
+    ]
+    assert _probe_targets("dual-stack-v4-first.example") == [
+        (socket.AF_INET, "192.0.2.10"),
+        (socket.AF_INET6, "2001:db8::10"),
     ]
     monkeypatch.setattr(
         "apme_engine.daemon.launcher._local_addresses",
@@ -145,6 +157,29 @@ def test_check_port_available_does_not_skip_resolution_failures(
         mock_socket.assert_not_called()
     assert _address_port_bound("temporary-dns.example:50051") is True
     assert resolve_mock.call_count == 2
+
+
+def test_check_port_available_treats_unavailable_address_as_unverified(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A resolved address missing from this host must not look like a free port.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    monkeypatch.setattr(
+        "apme_engine.daemon.launcher.socket.getaddrinfo",
+        lambda host, *args, **kwargs: [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("2001:db8::10", 0, 0, 0))
+        ],
+    )
+    with patch("apme_engine.daemon.launcher.socket.socket") as mock_socket:
+        mock_socket.return_value.__enter__.return_value.bind.side_effect = OSError(
+            errno.EADDRNOTAVAIL,
+            "Cannot assign requested address",
+        )
+        assert _check_port_available("stale-dns.example", 50051) is False
+        assert _address_port_bound("stale-dns.example:50051") is True
 
 
 def test_bind_probe_resolves_address_matching_socket_family(

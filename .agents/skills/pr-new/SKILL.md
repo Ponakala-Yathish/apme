@@ -10,7 +10,7 @@ argument-hint: "[branch-name] [--title 'PR title']"
 user-invocable: true
 metadata:
   author: APME Team
-  version: 1.3.0
+  version: 1.6.0
 ---
 
 # PR New
@@ -404,6 +404,21 @@ break ``rpartition(":")``: empty host (``:port``), unbracketed IPv6
 ``host:abc``). If a caller claims graceful degrade and only catches
 ``ImportError``, also construct a parse ``ValueError`` through that
 caller. Do not treat “contains a colon” as proof of TCP.
+For hostname-based socket probes, construct IPv4-only, IPv6-only, and
+dual-stack DNS answers in both answer orders. Verify every resolved
+address is probed with its matching socket family, and simulate
+resolution failures and recovery so an unavailable lookup cannot be
+misreported as a free port or retried with a guessed family.
+For best-effort local-address discovery, verify candidates with an
+ephemeral bind before adding them to wildcard probe targets. Drop
+non-loopback candidates rejected as no longer local, but retain the
+loopback sentinel when it fails with ``EADDRNOTAVAIL`` and candidates
+when the family itself is unsupported. Stale-state checks must treat
+these as unverified instead of free.
+For durable state that records a hostname, simulate DNS changing between
+state creation and recovery. Current resolver answers cannot prove where the
+process originally bound; persist the original targets or fail closed when
+no address snapshot exists.
 When a function degrades to identity (return original / omit from
 diffs / skip and continue) on failure, construct the caller path that
 reports "already clean", "idempotent", or "success" from an empty

@@ -485,17 +485,12 @@ def _probe_targets(host: str) -> list[tuple[int, str]]:
         host: Host from a gRPC listen address or caller-supplied bind target.
 
     Returns:
-        ``(address_family, ip)`` pairs to probe. If name resolution fails,
-        retain the hostname as a candidate so the bind reports the resolver
-        error instead of treating the port as free.
+        ``(address_family, ip)`` pairs to probe. Returns an empty list when
+        name resolution fails so callers can treat the port as unverified.
     """
     resolved = _resolved_bind_ips(host)
     if not resolved:
-        candidate = _unbracket_host(host)
-        family = (
-            socket.AF_INET6 if (host.startswith("[") and host.endswith("]")) or ":" in candidate else socket.AF_INET
-        )
-        return [(family, candidate)]
+        return []
 
     targets: list[tuple[int, str]] = []
     for ip in resolved:
@@ -558,9 +553,13 @@ def _check_port_available(host: str, port: int) -> bool:
 
     Returns:
         True when the port is available (bind succeeds on every probeable
-        local address for *host*).
+        local address for *host*). Resolution failures are treated as
+        unavailable, not as evidence that the port is free.
     """
-    for family, addr in _probe_targets(host):
+    targets = _probe_targets(host)
+    if not targets:
+        return False
+    for family, addr in targets:
         result = _bind_probe(family, addr, port)
         if result is False:
             return False
@@ -571,13 +570,14 @@ def _check_port_available(host: str, port: int) -> bool:
 
 
 def _address_port_bound(address: str) -> bool:
-    """Return True when the host:port in *address* is already bound.
+    """Return True when the host:port in *address* is bound or unverified.
 
     Args:
         address: gRPC-style ``host:port`` string from daemon state.
 
     Returns:
-        True when the port is in use (or the address cannot be parsed).
+        True when the port is in use, cannot be probed, or the address cannot
+        be parsed.
     """
     host, _, port_s = address.rpartition(":")
     if not host or not port_s.isdigit():
@@ -586,19 +586,19 @@ def _address_port_bound(address: str) -> bool:
 
 
 def _assert_ports_free(host: str, ports: dict[str, int]) -> None:
-    """Raise RuntimeError if any port in *ports* is already bound.
+    """Raise RuntimeError if any port in *ports* is bound or unverified.
 
     Args:
         host: Host to probe.
         ports: Map of service name to port number.
 
     Raises:
-        RuntimeError: When a port is already in use.
+        RuntimeError: When a port is in use or cannot be verified.
     """
     for name, port in ports.items():
         if not _check_port_available(host, port):
             msg = (
-                f"Port {port} ({name}) is already in use — is a Podman pod or "
+                f"Port {port} ({name}) is in use or could not be verified — is a Podman pod or "
                 f"another daemon running? Set APME_ENGINE_ADDRESS to connect "
                 f"to an existing service instead of starting a new daemon."
             )
@@ -1008,13 +1008,14 @@ def _daemon_status_unlocked() -> DaemonState | None:
             _stop_daemon_unlocked()
             return None
         # Live PID, failed Engine health, no ownership proof. If the recorded
-        # Engine port is still bound, auto-start would collide — ask the
-        # operator to free it instead of deleting state and retrying.
+        # Engine port is bound or cannot be checked, auto-start may collide —
+        # ask the operator to investigate instead of deleting state and retrying.
         if _address_port_bound(state.engine):
             msg = (
-                f"A live process (pid {state.pid}) still holds daemon ports but "
-                f"does not answer Engine health and cannot be verified for "
-                f"ownership. Stop it manually (`kill {state.pid}`), remove "
+                f"A live process (pid {state.pid}) does not answer Engine health "
+                f"and cannot be verified for ownership. Its recorded Engine "
+                f"port is in use or could not be checked. Stop it manually "
+                f"(`kill {state.pid}`), remove "
                 f"`~/.apme-data/daemon.json` if it remains, then retry. "
                 f"Auto-start is blocked to avoid port conflicts."
             )

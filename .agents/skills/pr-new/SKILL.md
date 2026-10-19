@@ -10,7 +10,7 @@ argument-hint: "[branch-name] [--title 'PR title']"
 user-invocable: true
 metadata:
   author: APME Team
-  version: 1.3.0
+  version: 1.4.0
 ---
 
 # PR New
@@ -404,6 +404,11 @@ break ``rpartition(":")``: empty host (``:port``), unbracketed IPv6
 ``host:abc``). If a caller claims graceful degrade and only catches
 ``ImportError``, also construct a parse ``ValueError`` through that
 caller. Do not treat “contains a colon” as proof of TCP.
+For hostname-based socket probes, construct IPv4-only, IPv6-only, and
+dual-stack DNS answers in both answer orders. Verify every resolved
+address is probed with its matching socket family, and simulate
+resolution failures and recovery so an unavailable lookup cannot be
+misreported as a free port or retried with a guessed family.
 When a function degrades to identity (return original / omit from
 diffs / skip and continue) on failure, construct the caller path that
 reports "already clean", "idempotent", or "success" from an empty

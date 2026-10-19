@@ -7,7 +7,7 @@ import json
 import signal
 import socket
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import pytest
 from pytest import MonkeyPatch
@@ -135,13 +135,16 @@ def test_check_port_available_does_not_skip_resolution_failures(
     def fail_resolution(*args: object, **kwargs: object) -> list[tuple[object, ...]]:
         raise socket.gaierror(socket.EAI_AGAIN, "temporary failure")
 
+    resolve_mock = Mock(side_effect=fail_resolution)
     monkeypatch.setattr(
         "apme_engine.daemon.launcher.socket.getaddrinfo",
-        fail_resolution,
+        resolve_mock,
     )
     with patch("apme_engine.daemon.launcher.socket.socket") as mock_socket:
         assert _check_port_available("temporary-dns.example", 50051) is False
         mock_socket.assert_not_called()
+    assert _address_port_bound("temporary-dns.example:50051") is True
+    assert resolve_mock.call_count == 2
 
 
 def test_bind_probe_resolves_address_matching_socket_family(
@@ -317,7 +320,7 @@ def test_assert_ports_free_raises_on_conflict() -> None:
     sock.listen(1)
     port = sock.getsockname()[1]
     try:
-        with pytest.raises(RuntimeError, match="already in use"):
+        with pytest.raises(RuntimeError, match="in use or could not be verified"):
             _assert_ports_free("127.0.0.1", {"engine": port})
     finally:
         sock.close()
@@ -406,8 +409,8 @@ def test_daemon_status_removes_stale_state_when_port_free(tmp_path: Path, monkey
     assert not state_file.exists()
 
 
-def test_daemon_status_blocks_when_unverified_pid_holds_ports(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
-    """Unverified live PID with a bound Engine port raises instead of auto-start.
+def test_daemon_status_blocks_when_unverified_pid_port_is_unavailable(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    """Unverified live PID with a bound or uncheckable Engine port blocks auto-start.
 
     Args:
         tmp_path: Pytest temporary directory.
@@ -436,7 +439,7 @@ def test_daemon_status_blocks_when_unverified_pid_holds_ports(tmp_path: Path, mo
         patch("apme_engine.daemon.launcher._health_check", return_value=False),
         patch("apme_engine.daemon.launcher._address_port_bound", return_value=True),
         patch("apme_engine.daemon.launcher._stop_daemon_unlocked") as stop_mock,
-        pytest.raises(RuntimeError, match="still holds daemon ports"),
+        pytest.raises(RuntimeError, match="in use or could not be checked"),
     ):
         daemon_status()
 

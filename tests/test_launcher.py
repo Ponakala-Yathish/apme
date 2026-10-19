@@ -295,18 +295,28 @@ def test_probe_preserves_ipv6_scope_id(monkeypatch: MonkeyPatch) -> None:
     Args:
         monkeypatch: Pytest monkeypatch fixture.
     """
-    scoped_address = "fe80::10%eth0"
+    addresses = {
+        "link-local-index.example": "fe80::10%3",
+        "link-local-name.example": "fe80::11%eth0",
+    }
+    resolutions = {
+        "link-local-index.example": [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("fe80::10", 0, 0, 3)),
+        ],
+        "link-local-name.example": [
+            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("fe80::11%eth0", 0, 0, 3)),
+        ],
+    }
     monkeypatch.setattr(
         "apme_engine.daemon.launcher.socket.getaddrinfo",
-        lambda *args, **kwargs: [
-            (socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (scoped_address, 0, 0, 3))
-        ],
+        lambda host, *args, **kwargs: resolutions[host],
     )
 
-    assert _probe_targets("link-local.example") == [(socket.AF_INET6, scoped_address)]
-    with patch("apme_engine.daemon.launcher.socket.socket") as mock_socket:
-        assert _bind_probe(socket.AF_INET6, "link-local.example", 50051) is True
-    mock_socket.return_value.__enter__.return_value.bind.assert_called_once_with((scoped_address, 50051))
+    for host, scoped_address in addresses.items():
+        assert _probe_targets(host) == [(socket.AF_INET6, scoped_address)]
+        with patch("apme_engine.daemon.launcher.socket.socket") as mock_socket:
+            assert _bind_probe(socket.AF_INET6, host, 50051) is True
+        mock_socket.return_value.__enter__.return_value.bind.assert_called_once_with((scoped_address, 50051))
 
 
 def test_local_addresses_exclude_wildcard_ips(monkeypatch: MonkeyPatch) -> None:
@@ -576,6 +586,7 @@ def test_daemon_status_blocks_when_unverified_pid_port_is_unavailable(tmp_path: 
 
     assert "Verify the process and port owner before stopping anything" in str(exc_info.value)
     assert f"kill {4242}" not in str(exc_info.value)
+    assert str(state_file) in str(exc_info.value)
     stop_mock.assert_not_called()
     assert state_file.exists()
 

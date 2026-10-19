@@ -365,9 +365,13 @@ def _resolved_bind_ips(host: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6
     found: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
     try:
         for info in socket.getaddrinfo(candidate, None, type=socket.SOCK_STREAM):
-            raw_ip = info[4][0]
+            sockaddr = info[4]
+            raw_ip = sockaddr[0]
             if not isinstance(raw_ip, str):
                 continue
+            scope_id = sockaddr[3] if info[0] == socket.AF_INET6 and len(sockaddr) > 3 else 0
+            if isinstance(scope_id, int) and scope_id > 0 and "%" not in raw_ip:
+                raw_ip = f"{raw_ip}%{scope_id}"
             try:
                 found.append(ipaddress.ip_address(raw_ip))
             except ValueError:
@@ -1021,7 +1025,7 @@ def _daemon_status_unlocked() -> DaemonState | None:
                 f"port is in use or could not be checked. Verify the process "
                 f"and port owner before stopping anything; after confirming "
                 f"the state is stale and the port is free, remove "
-                f"`~/.apme-data/daemon.json` if it remains, then retry. "
+                f"`{_STATE_FILE}` if it remains, then retry. "
                 f"Auto-start is blocked to avoid port conflicts."
             )
             raise RuntimeError(msg)

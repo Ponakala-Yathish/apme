@@ -23,6 +23,42 @@ from urllib.parse import urlsplit
 logger = logging.getLogger(__name__)
 
 
+def read_server_validate_certs(parser: configparser.ConfigParser, name: str) -> bool | None:
+    """Resolve native TLS policy with environment precedence and Ansible booleans.
+
+    Args:
+        parser: Parsed ansible.cfg configuration.
+        name: Galaxy server identifier.
+
+    Returns:
+        Explicit or inherited TLS verification policy, or None for CLI defaults.
+
+    Raises:
+        ValueError: When a configured TLS boolean is invalid.
+    """  # noqa: DOC502 -- nested boolean parser raises
+
+    def parse(value: str, setting: str) -> bool:
+        normalized = value.strip().lower()
+        if normalized in {"1", "yes", "y", "true", "t", "on"}:
+            return True
+        if normalized in {"0", "no", "n", "false", "f", "off"}:
+            return False
+        raise ValueError(f"Invalid Galaxy TLS boolean for {setting}")
+
+    per_server = os.environ.get(f"ANSIBLE_GALAXY_SERVER_{name.upper()}_VALIDATE_CERTS")
+    if per_server is not None:
+        return parse(per_server, f"ANSIBLE_GALAXY_SERVER_{name.upper()}_VALIDATE_CERTS")
+    section = f"galaxy_server.{name}"
+    if parser.has_option(section, "validate_certs"):
+        return parse(parser.get(section, "validate_certs"), f"[{section}] validate_certs")
+    global_override = os.environ.get("ANSIBLE_GALAXY_IGNORE")
+    if global_override is not None:
+        return not parse(global_override, "ANSIBLE_GALAXY_IGNORE")
+    if parser.has_option("galaxy", "ignore_certs"):
+        return not parse(parser.get("galaxy", "ignore_certs"), "[galaxy] ignore_certs")
+    return None
+
+
 def _safe_server_label(raw_url: str) -> str:
     """Return an upstream server label without credentials or URL details.
 
@@ -57,12 +93,14 @@ class GalaxyServerConfig:
         url: Base URL of the Galaxy or Automation Hub API.
         token: Optional API token for authentication.
         auth_url: Optional SSO/Keycloak token endpoint (for Automation Hub).
+        validate_certs: Per-server TLS verification, or None to inherit the CLI default.
     """
 
     name: str
     url: str
     token: str | None = None
     auth_url: str | None = None
+    validate_certs: bool | None = None
 
 
 @dataclass
@@ -88,9 +126,8 @@ def write_temp_ansible_cfg(
 
     The generated config uses a ``[galaxy]`` section with ``server_list``
     pointing to per-server ``[galaxy_server.<name>]`` sections — the same
-    format ``ansible-galaxy`` reads natively.  It currently also sets
-    ``ignore_certs = true`` so private Hub installs work with self-signed
-    certificates (temporary; should become configurable).
+    format ``ansible-galaxy`` reads natively. TLS certificates are verified
+    by default; an explicit ``ANSIBLE_GALAXY_IGNORE=true`` opts out.
 
     Args:
         servers: Ordered list of Galaxy server configurations.
@@ -117,9 +154,7 @@ def write_temp_ansible_cfg(
 
     cfg.add_section("galaxy")
     cfg.set("galaxy", "server_list", ",".join(server_names))
-    # Temporary: allow Hub/Galaxy pulls against self-signed lab CAs.
-    # CA bundle injection is too hard in the current lab path; flip via #526.
-    cfg.set("galaxy", "ignore_certs", "true")
+    cfg.set("galaxy", "ignore_certs", "false")
 
     for srv in servers:
         section = f"galaxy_server.{srv.name}"
@@ -129,6 +164,8 @@ def write_temp_ansible_cfg(
             cfg.set(section, "token", srv.token)
         if srv.auth_url:
             cfg.set(section, "auth_url", srv.auth_url)
+        if srv.validate_certs is not None:
+            cfg.set(section, "validate_certs", str(srv.validate_certs).lower())
 
     cfg_path = dest_dir / "ansible.cfg"
     fd = os.open(str(cfg_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -192,6 +229,35 @@ def _inject_galaxy_env(env: dict[str, str], servers: list[GalaxyServerConfig]) -
             env[f"{prefix}TOKEN"] = s.token
         if s.auth_url:
             env[f"{prefix}AUTH_URL"] = s.auth_url
+        if s.validate_certs is not None:
+            env[f"{prefix}VALIDATE_CERTS"] = str(s.validate_certs).lower()
+        else:
+            env.pop(f"{prefix}VALIDATE_CERTS", None)
+
+
+def download_error_summary(stderr: str) -> str:
+    """Classify a CLI failure without exposing credentials or response bodies.
+
+    Args:
+        stderr: Captured CLI diagnostics (never returned verbatim).
+
+    Returns:
+        A fixed, safe operational explanation.
+    """
+    message = stderr.lower()
+    if "certificate_verify_failed" in message or "certificate verify failed" in message:
+        return "TLS certificate verification failed; configure Hub CA trust or an explicit TLS opt-out"
+    if (
+        re.search(r"\bhttp(?:\s+error|\s+code|\s+status(?:\s+code)?)?\s*[:=]?\s*(?:401|403)\b", message)
+        or "unauthorized" in message
+        or "forbidden" in message
+    ):
+        return "Configured Galaxy servers rejected authentication or permissions"
+    if "could not satisfy" in message or "failed to resolve" in message:
+        return "Configured Galaxy servers could not resolve the required collection version or dependencies"
+    if "timed out" in message:
+        return "Configured Galaxy server download timed out"
+    return "Collection download failed; check configured Galaxy server connectivity and availability"
 
 
 def _default_ansible_galaxy_bin() -> str:
@@ -224,6 +290,7 @@ async def download_collections(
     servers: list[GalaxyServerConfig] | None = None,
     ansible_galaxy_bin: str | None = None,
     timeout: float = 300.0,
+    include_dependencies: bool = False,
 ) -> DownloadResult:
     """Download collection tarballs via ``ansible-galaxy collection download``.
 
@@ -245,6 +312,8 @@ async def download_collections(
             the process environment.
         ansible_galaxy_bin: Override for the ``ansible-galaxy`` binary path.
         timeout: Subprocess timeout in seconds.
+        include_dependencies: Whether ``ansible-galaxy`` should also download
+            dependencies declared by the requested collections.
 
     Returns:
         DownloadResult with paths to downloaded tarballs and any failures.
@@ -288,9 +357,10 @@ async def download_collections(
         "download",
         "--download-path",
         str(download_dir),
-        "--no-deps",
-        *normalized_specs,
     ]
+    if not include_dependencies:
+        cmd.append("--no-deps")
+    cmd.extend(normalized_specs)
 
     env = dict(os.environ)
     process: asyncio.subprocess.Process | None = None
@@ -299,11 +369,10 @@ async def download_collections(
     status = "error"
 
     try:
-        # Temporary lab default for Hub/self-signed TLS. Env vars outrank INI, so
-        # only inject when the caller did not supply ansible.cfg (their
-        # galaxy.ignore_certs must win). Track flipping the default: #526.
+        # Env vars outrank INI, so only inject when the caller did not supply
+        # ansible.cfg (their galaxy.ignore_certs setting must win).
         if ansible_cfg_path is None:
-            env.setdefault("ANSIBLE_GALAXY_IGNORE", "true")
+            env.setdefault("ANSIBLE_GALAXY_IGNORE", "false")
         if servers:
             try:
                 _inject_galaxy_env(env, servers)
@@ -341,8 +410,9 @@ async def download_collections(
 
         if process.returncode != 0:
             logger.warning(
-                "ansible-galaxy collection download failed (rc=%d)",
+                "ansible-galaxy collection download failed (rc=%d): %s",
                 process.returncode,
+                download_error_summary(stderr_text or stdout_text),
             )
             failed = _compute_failed_specs(collection_specs, tarballs)
             return DownloadResult(
@@ -409,6 +479,7 @@ def download_collections_sync(
     servers: list[GalaxyServerConfig] | None = None,
     ansible_galaxy_bin: str | None = None,
     timeout: float = 300.0,
+    include_dependencies: bool = False,
 ) -> DownloadResult:
     """Synchronous wrapper around :func:`download_collections`.
 
@@ -422,6 +493,7 @@ def download_collections_sync(
         servers: Galaxy server configs (generates a temp ansible.cfg).
         ansible_galaxy_bin: Override for the ``ansible-galaxy`` binary path.
         timeout: Subprocess timeout in seconds.
+        include_dependencies: Whether to download collection dependencies.
 
     Returns:
         DownloadResult with paths to downloaded tarballs and any failures.
@@ -434,6 +506,7 @@ def download_collections_sync(
             servers=servers,
             ansible_galaxy_bin=ansible_galaxy_bin,
             timeout=timeout,
+            include_dependencies=include_dependencies,
         )
     )
 

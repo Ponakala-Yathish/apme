@@ -199,13 +199,76 @@ proxy gRPC requests to it.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APME_GALAXY_PROXY_URL` | `http://127.0.0.1:8765` | Galaxy proxy base URL |
+| `APME_PROXY_ADMIN_TOKEN` | chart-managed secret | Shared token used by Engine to request collection preparation and by Gateway to sync Hub configuration |
+| `APME_PROXY_REQUIRE_GATEWAY_CONFIG` | `1` in Helm/Podman/bootc pods | Wait for authenticated Gateway configuration before collection access, including when the cache is empty or unavailable. Standalone CLI proxies omit this setting. |
 | `LOG_LEVEL` | `INFO` | Galaxy Proxy logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Invalid values fail startup. |
 
-At `INFO` level, Galaxy Proxy logs collection requests, metadata and wheel
-cache hits/misses, sanitized upstream Galaxy operations and responses, HTTP
+At `INFO` level, Galaxy Proxy logs collection requests, wheel cache
+hits/misses, sanitized upstream Galaxy operations and responses, HTTP
 response status, download duration, and download size. Tokens, authorization
 headers, and response bodies are not logged. Set `LOG_LEVEL=DEBUG` while
 diagnosing Galaxy or Automation Hub connectivity.
+
+Collection installation uses the proxy's cached wheels first. On a cache
+miss or a cache read failure, the proxy downloads from the configured Galaxy
+servers with `ansible-galaxy`, converts the collection to a wheel, and serves
+it even if saving the wheel to cache fails.
+
+Portal supplies its connected Private Automation Hub repositories and tokens
+through Gateway. Identical configuration refreshes, including the first push
+after a proxy restart, preserve the cache. A persisted digest identifies the
+sources, credentials, and TLS settings without storing credentials on the
+cache volume. Changed configuration invalidates cached wheels; caches from
+older releases without a digest are invalidated once. A proxy awaiting its
+previous Hub configuration returns 503 for collection requests until Gateway
+restores it. Gateway reconciles every 15 seconds, so proxy-only restarts and
+failed startup pushes recover. Managed pods wait for that configuration even
+when the cache marker is missing; standalone CLI proxies track their active
+native configuration. A native daemon preserves unmatched cached artifacts with
+reads disabled at startup, binding them only once a collection request establishes
+the active scan source. Cache storage failures bypass disk caching and allow fresh Hub
+downloads. Before pip resolves the proxy index,
+Engine sends the scan's collection specs to the authenticated proxy prepare
+endpoint. The proxy calls `ansible-galaxy collection download` with each exact
+pin or unpinned FQCN, lets the CLI resolve collection dependencies, converts
+the returned tarballs to wheels, and serves them from the cache. No remote
+version catalog is fetched. Configured Hub failures do not trigger an implicit
+public Galaxy fallback.
+
+The engine, Gateway, and proxy share `APME_PROXY_ADMIN_TOKEN`; Helm injects the
+same secret into each container. Downloads verify TLS certificates by default.
+Galaxy server creation/update accepts `validate_certs: true`, `false`, or
+`null` (inherit the deployment default). Gateway persists and forwards this
+setting to the proxy and scan metadata. Explicit per-server policy takes
+precedence over the deployment default. Portal should forward its connected
+Hub's `ansible.rhaap.checkSSL` setting.
+
+For verified Helm connections to a private Hub, supply a ConfigMap containing
+the Hub's PEM CA certificate. The proxy's init container combines it with the
+image's system roots:
+
+```yaml
+engine:
+  galaxyProxy:
+    tls:
+      verify: true
+      caBundleConfigMapRef:
+        name: private-hub-ca
+        key: ca-bundle.crt
+```
+
+Restart the deployment after changing the referenced CA ConfigMap so the init
+container rebuilds its trust bundle. For an explicit lab opt-out, set
+`engine.galaxyProxy.tls.verify: false`, or `validate_certs: false` on the
+individual Hub. The existing `engine.galaxyProxy.extraEnv` escape hatch remains
+supported; do not specify `ANSIBLE_GALAXY_IGNORE` there together with
+`tls.verify`. TLS defaults affect only servers without a per-server override.
+
+Collection installation repositories must include every required collection
+and its dependencies. Catalog synchronization repositories may cover only a
+subset. Configure installation sources explicitly when necessary and mirror
+required community collections into the connected Hub. Missing required
+collections continue to abort scans; no implicit public Galaxy fallback is added.
 
 #### Gateway
 

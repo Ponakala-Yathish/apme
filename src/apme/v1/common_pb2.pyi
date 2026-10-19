@@ -26,6 +26,7 @@ class Violation:
     def __init__(self, **kwargs: object) -> None: ...
     def HasField(self, name: str) -> bool: ...
     def CopyFrom(self, other: Violation) -> None: ...
+    def ByteSize(self) -> int: ...
 
 class LineRange:
     start: int
@@ -59,6 +60,7 @@ class ScanSummary:
     manual_review: int
     by_resolution: dict[str, int]
     def __init__(self, **kwargs: object) -> None: ...
+    def CopyFrom(self, other: ScanSummary) -> None: ...
 
 class RuleTiming:
     rule_id: str
@@ -83,6 +85,7 @@ class GalaxyServerDef:
     url: str
     token: str
     auth_url: str
+    validate_certs: bool
     def __init__(
         self,
         *,
@@ -90,10 +93,12 @@ class GalaxyServerDef:
         url: str = "",
         token: str = "",
         auth_url: str = "",
+        validate_certs: bool | None = None,
         **kwargs: object,
     ) -> None: ...
     def SerializeToString(self) -> bytes: ...
     def ParseFromString(self, data: bytes) -> int: ...
+    def HasField(self, name: str) -> bool: ...
 
 # Severity enum constants (ADR-043)
 SEVERITY_UNSPECIFIED: int
@@ -121,6 +126,7 @@ class ProgressUpdate:
     ai_total: int
     operation_generation: int
     def __init__(self, **kwargs: object) -> None: ...
+    def ByteSize(self) -> int: ...
 
 class CollectionRef:
     fqcn: str
@@ -165,3 +171,4 @@ class ProjectManifest:
         **kwargs: object,
     ) -> None: ...
     def ByteSize(self) -> int: ...
+    def CopyFrom(self, other: ProjectManifest) -> None: ...

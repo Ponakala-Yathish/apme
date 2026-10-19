@@ -13,6 +13,12 @@ In ansible-core 2.19+, the trust model is inverted. Strings from module results 
 Registered results used as a loop source are not re-templated and are not a
 violation:
 
+Assert `that` conditions are boolean checks, not re-templating sinks. M005
+does not scan `that` itself. If the required `that` is missing, M005 skips the
+assert module messages but still checks task-level expressions such as `when`.
+With `that: []`, the assert succeeds immediately, so M005 scans `success_msg`
+but not the unrendered `fail_msg`.
+
 ```yaml
 - name: Assert each stat result
   ansible.builtin.assert:
@@ -48,4 +54,14 @@ violation:
     - name: Show greeting
       ansible.builtin.debug:
         msg: "Hello, world"
+
+    - name: Slurp file for verification
+      ansible.builtin.slurp:
+        src: /tmp/security.conf
+      register: slurp_result
+
+    - name: Assert file contains expected content
+      ansible.builtin.assert:
+        that: "{{ slurp_result['content'] }} == 'eA=='"
+        fail_msg: "security.conf content mismatch"
 ```

@@ -16,7 +16,7 @@
 
 ```bash
 # tox — sole developer orchestration tool (ADR-047)
-uv tool install tox==4.53.0 --with tox-uv==1.36.0
+uv tool install tox==4.61.4 --with tox-uv==1.36.0
 
 # prek — git hooks (runs automatically on commit)
 uv tool install prek
@@ -621,7 +621,7 @@ uv run python scripts/debug/ws-diag.py tests/fixtures/terrible-playbook
 | Prefix | Category | Examples |
 |--------|----------|----------|
 | **L** | Lint (style, correctness, best practice) | L002–L059 |
-| **M** | Modernize (ansible-core metadata) | M001–M030 |
+| **M** | Modernize (ansible-core metadata) | M001–M047 |
 | **R** | Risk/security (annotation-based) | R101–R501, R118 |
 | **P** | Policy (legacy, superseded by L058/L059) | P001–P004 |
 

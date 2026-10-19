@@ -515,6 +515,7 @@ class TestM005GraphRule:
         self,
         *,
         register_name: str = "cmd_output",
+        consumer_module: str = "debug",
         consumer_options: YAMLDict | None = None,
         consumer_module_options: YAMLDict | None = None,
         use_data_flow_edge: bool = True,
@@ -523,6 +524,7 @@ class TestM005GraphRule:
 
         Args:
             register_name: Name of the registered variable.
+            consumer_module: Module of the consumer task.
             consumer_options: Options on the consumer task.
             consumer_module_options: Module options on the consumer task.
             use_data_flow_edge: Whether to add a DATA_FLOW edge.
@@ -553,7 +555,7 @@ class TestM005GraphRule:
             identity=NodeIdentity(path="site.yml/plays[0]/tasks[1]", node_type=NodeType.TASK),
             file_path="site.yml",
             line_start=10,
-            module="debug",
+            module=consumer_module,
             options=consumer_options or {},
             module_options=consumer_module_options or {},
             scope=NodeScope.OWNED,
@@ -666,6 +668,108 @@ class TestM005GraphRule:
         result = rule.process(g, task_id)
         assert result is not None
         assert result.verdict is False
+
+    @pytest.mark.parametrize("assert_module", ["assert", "ansible.builtin.assert", "ansible.legacy.assert"])  # type: ignore[untyped-decorator]
+    def test_assert_that_string_is_clean(self, rule: DataTaggingGraphRule, assert_module: str) -> None:
+        """Registered vars in assert `that` conditions are boolean tests, not sinks.
+
+        Args:
+            rule: Rule instance under test.
+            assert_module: Assert module spelling under test.
+        """
+        g, task_id = self._build_register_then_use(
+            register_name="slurp_result",
+            consumer_module=assert_module,
+            consumer_module_options={"that": "{{ slurp_result['content'] }} == 'x'"},
+        )
+        result = rule.process(g, task_id)
+        assert result is not None
+        assert result.verdict is False
+
+    def test_that_option_on_non_assert_module_still_flagged(self, rule: DataTaggingGraphRule) -> None:
+        """The `that` exclusion is assert-scoped: other modules stay flagged.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        g, task_id = self._build_register_then_use(
+            register_name="slurp_result",
+            consumer_module="debug",
+            consumer_module_options={"that": "{{ slurp_result['content'] }} == 'x'"},
+        )
+        result = rule.process(g, task_id)
+        assert result is not None
+        assert result.verdict is True
+
+    def test_assert_fail_msg_still_flagged(self, rule: DataTaggingGraphRule) -> None:
+        """Rendered assert output (fail_msg) stays in scope for M005.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        g, task_id = self._build_register_then_use(
+            register_name="slurp_result",
+            consumer_module="ansible.builtin.assert",
+            consumer_module_options={
+                "that": "{{ slurp_result['content'] }} == 'x'",
+                "fail_msg": "content was {{ slurp_result['content'] }}",
+            },
+        )
+        result = rule.process(g, task_id)
+        assert result is not None
+        assert result.verdict is True
+
+    @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
+        ("module_options", "expected_violation"),
+        [
+            ({"fail_msg": "failed with {{ slurp_result }}"}, False),
+            ({"that": [], "fail_msg": "failed with {{ slurp_result }}"}, False),
+            ({"that": [], "msg": "failed with {{ slurp_result }}"}, False),
+            ({"that": [], "success_msg": "passed with {{ slurp_result }}"}, True),
+        ],
+        ids=["missing-that", "empty-that-fail-message", "empty-that-msg-alias", "empty-that-success-message"],
+    )
+    def test_assert_without_conditions_scans_only_rendered_m005_messages(
+        self,
+        rule: DataTaggingGraphRule,
+        module_options: YAMLDict,
+        expected_violation: bool,
+    ) -> None:
+        """Missing/empty ``that`` only leaves actual rendered messages in scope.
+
+        Args:
+            rule: Rule instance under test.
+            module_options: Assert arguments, including any rendered message.
+            expected_violation: Whether a rendered message uses a registered var.
+        """
+        g, task_id = self._build_register_then_use(
+            register_name="slurp_result",
+            consumer_module="ansible.builtin.assert",
+            consumer_module_options=module_options,
+        )
+
+        result = rule.process(g, task_id)
+
+        assert result is not None
+        assert result.verdict is expected_violation
+
+    def test_missing_assert_that_does_not_skip_task_expressions(self, rule: DataTaggingGraphRule) -> None:
+        """Task conditions are still checked when an assert task is malformed.
+
+        Args:
+            rule: Rule instance under test.
+        """
+        g, task_id = self._build_register_then_use(
+            register_name="slurp_result",
+            consumer_module="ansible.builtin.assert",
+            consumer_options={"when": "{{ slurp_result.rc }} == 0"},
+            consumer_module_options={"fail_msg": "failed with {{ slurp_result }}"},
+        )
+
+        result = rule.process(g, task_id)
+
+        assert result is not None
+        assert result.verdict is True
 
 
 # ---------------------------------------------------------------------------

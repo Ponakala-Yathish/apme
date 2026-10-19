@@ -106,6 +106,13 @@ artifact type, translate it:
    annotation, return value, error code, version range, log level,
    comment, and docstring. If the code declares it, the runtime must
    honor it on every path.
+   For recurring background work, compare steady-state and transition logs:
+   unchanged successes and repeated failures should not crowd out meaningful
+   changes; initial failures and recoveries must remain visible.
+   When classifying free-form diagnostics, require context and token boundaries
+   for numeric identifiers so unrelated values do not acquire error semantics.
+   Check real diagnostics from the upstream producer, including every supported
+   output format, so restrictive matching still recognizes actual failures.
 
 2. **Does this expose more than it should?** Check every log call,
    error message, and user-facing string. Does it contain user content,
@@ -123,6 +130,10 @@ artifact type, translate it:
    the same module? When a helper opens a channel, socket, or other
    closeable resource, does every return path (success and failure)
    close it — typically via `finally` — or can a failed RPC leak it?
+   Trace async entry points through helpers to every filesystem operation,
+   including discovery, metadata probes, and parsing. Blocking storage must
+   stay off the event loop, and unchanged hot paths should avoid repeated
+   content reads and unnecessary shared-lock contention.
 
 4. **Is everything still true after this change?** Diff comments and
    docstrings against the code they describe. Did you rename something
@@ -142,7 +153,11 @@ artifact type, translate it:
 
 5. **Are dependencies and versions pinned to intent?** Check every
    version range, action tag, and base image. Does each one express
-   what you actually mean — not tighter, not looser? For workflow
+   what you actually mean — not tighter, not looser? When updating a tool
+   used by CI, compare all of its resolution sources: CI requirements,
+   project lockfiles, developer install commands, and agent setup guides.
+   Keep the resolved versions aligned or document the intentional split.
+   For workflow
    checkouts: if the job has write scopes (`packages: write`, etc.)
    or runs untrusted/repo scripts after checkout, is
    `persist-credentials: false` set so `GITHUB_TOKEN` is not left
@@ -211,9 +226,20 @@ artifact type, translate it:
    string with the same whitespace class, not ``split(trim(x, " "), " ")``.
    Also construct _temporal_ failures: what happens when an async
    dependency never responds, times out, or responds after the
-   consumer has moved on? What happens when `asyncio.gather()`
+   consumer has moved on? For React effects that rerun when a provider,
+   route, or selected entity changes, resolve and reject an older request
+   after cleanup; verify its success, catch, and finally handlers cannot
+   overwrite current data, selections, persisted values, or loading state.
+   What happens when `asyncio.gather()`
    returns a mix of results and exceptions — does every caller
    handle `return_exceptions=True` correctly?
+   Trace intentional control-flow exceptions through enclosing broad catches:
+   retries, cancellations, and source conflicts must retain their caller-visible
+   meaning. Malformed user configuration must reach the public entry point's
+   error contract with useful setting context and without exposing raw values.
+   For persisted identity, enumerate all transitive inputs (including trust
+   files, directory entries, and symlink targets); rotate their contents at
+   unchanged paths and verify both invalidation and steady-state reuse.
    When the change schedules fire-and-forget tasks (notifications,
    broadcasts, cleanup), construct the fixture/lifecycle race: does
    teardown dispose shared resources (DB engine, clients) while a
@@ -386,6 +412,10 @@ skipped list, WARNING progress/log) so failure is not presented as
 success. If that diagnostic is logged inside ``run_in_executor``,
 require ``contextvars.copy_context()`` (or an explicit progress event)
 so ADR-033 collectors and FixSession clients actually see it.
+When a graph builder maps ordered source sections to sibling edges,
+compare edge positions with the source language's execution phases, not
+only build order. Test a producer in an earlier phase consumed by a later
+phase (for Ansible plays: ``pre_tasks → roles → tasks → post_tasks``).
 Treat structured health/status bodies as contracts: reject
 substring/`"ok" in body` checks when the peer emits JSON with a
 ``status`` field — require exact equality (``status == "ok"``).
@@ -395,6 +425,11 @@ GitHub ``run:``), construct interpolator collisions: unescaped
 ``{...}`` that tox substitutes before Python runs. For
 ``next(glob(...))``, construct the empty-match path and require an
 explicit error instead of ``StopIteration``.
+
+For any text unescape/decode normalizer, construct inputs with one and
+multiple escaping layers, structural boundaries at root and nested
+positions, and lookalike escape sequences inside quoted content. Verify
+the detector and the rewrite recognize the same boundaries.
 
 Do NOT discuss architecture philosophy. Rank findings
 critical/high/medium/low.
@@ -439,7 +474,13 @@ critical/high/medium/low.
   _DEFAULT_PORTS ↔ started services; Helm template ↔ Podman
   ``pod.yaml`` for the same in-pod env/volume/probe wiring — if Helm
   mounts a shared socket for Gateway health, Podman Gateway must too)
-- Test gaps for behaviors the code/docs claim
+- Sibling-rule parity: when rules enforce the same security condition,
+  compare their scope enumeration and all-path requirements so a protected
+  path cannot hide an unprotected path in another rule (for example, L047
+  and L110 handling shared include contexts).
+- Test gaps for behaviors the code/docs claim; verify each regression test
+  reaches the changed logic and would fail without the fix (use a positive
+  control or the pre-fix behavior when practical)
 - Silent no-ops, dead branches, wrong defaults
 - **Dependencies pinned to intent** — version ranges, GitHub Action
   tags, base images, pip/uv specs (not tighter, not looser);

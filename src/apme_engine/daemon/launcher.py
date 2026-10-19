@@ -437,19 +437,29 @@ def _is_ipv4_wildcard_host(host: str) -> bool:
     return bool(ips) and all(isinstance(ip, ipaddress.IPv4Address) and ip.is_unspecified for ip in ips)
 
 
-def _resolved_concrete_bind_ip(addr: str) -> str | None:
+def _resolved_concrete_bind_ip(addr: str, family: int) -> str | None:
     """Resolve *addr* to a concrete IP string safe for ``sock.bind()``.
 
     Args:
         addr: Candidate bind address or hostname.
+        family: Address family for the probe socket.
 
     Returns:
-        A non-unspecified IP string, or ``None`` when *addr* is/resolves to
-        an all-interfaces address or cannot be resolved.
+        A non-unspecified IP string matching *family*, or ``None`` when
+        *addr* has no matching address, is/resolves to an all-interfaces
+        address in that family, or cannot be resolved.
     """
     if addr in _WILDCARD_IPV4 or addr in _WILDCARD_IPV6:
         return None
+    if family == socket.AF_INET:
+        address_type: type[ipaddress.IPv4Address] | type[ipaddress.IPv6Address] = ipaddress.IPv4Address
+    elif family == socket.AF_INET6:
+        address_type = ipaddress.IPv6Address
+    else:
+        return None
     for ip in _resolved_bind_ips(addr):
+        if not isinstance(ip, address_type):
+            continue
         if ip.is_unspecified:
             return None
         return str(ip)
@@ -533,7 +543,7 @@ def _bind_probe(family: int, addr: str, port: int) -> bool | None:
         in use, or ``None`` if *addr* is a wildcard or not assignable on this
         host.
     """
-    concrete = _resolved_concrete_bind_ip(addr)
+    concrete = _resolved_concrete_bind_ip(addr, family)
     if concrete is None:
         return None
     try:

@@ -82,6 +82,38 @@ def test_probe_targets_expands_alternate_ipv4_wildcards() -> None:
         assert all(addr not in {"", "0", "0.0.0.0", "0x0"} for _, addr in targets)
 
 
+def test_bind_probe_resolves_address_matching_socket_family(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """Dual-stack DNS results are selected to match the probe socket family.
+
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+    """
+    resolved = [
+        (
+            socket.AF_INET6,
+            socket.SOCK_STREAM,
+            socket.IPPROTO_TCP,
+            "",
+            ("2001:db8::10", 0, 0, 0),
+        ),
+        (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.0.2.10", 0)),
+    ]
+    monkeypatch.setattr(
+        "apme_engine.daemon.launcher.socket.getaddrinfo",
+        lambda *args, **kwargs: resolved,
+    )
+    for family, expected_address in (
+        (socket.AF_INET, "192.0.2.10"),
+        (socket.AF_INET6, "2001:db8::10"),
+    ):
+        with patch("apme_engine.daemon.launcher.socket.socket") as mock_socket:
+            assert _bind_probe(family, "dual-stack.example", 50051) is True
+
+        mock_socket.return_value.__enter__.return_value.bind.assert_called_once_with((expected_address, 50051))
+
+
 def test_local_addresses_exclude_wildcard_ips() -> None:
     """Discovered local addresses never include all-interfaces hosts."""
     forbidden = {"", "0.0.0.0", "::", "[::]"}

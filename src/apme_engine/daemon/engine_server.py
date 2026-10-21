@@ -2953,7 +2953,17 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
         fromfile: str,
         tofile: str,
     ) -> tuple[str, str, str]:
-        """Normalize proposal YAML and build a unified diff from the result."""
+        """Normalize proposal YAML and build a unified diff from the result.
+
+        Args:
+            before_yaml: Original YAML text.
+            after_yaml: Proposed YAML text.
+            fromfile: Label for the diff "from" side.
+            tofile: Label for the diff "to" side.
+
+        Returns:
+            Tuple of normalized before text, normalized after text, and unified diff.
+        """
         from apme_engine.remediation.proposal_yaml import normalize_proposal_yaml
 
         before = normalize_proposal_yaml(before_yaml)

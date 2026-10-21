@@ -29,6 +29,12 @@ def decode_escaped_proposal_text(text: str) -> str:
 
     Mirrors ``decodeEscapedProposalText`` in ``@apme/ui-workflow`` DiffView so
     engine output matches what the UI would recover for ``before_text``.
+
+    Args:
+        text: Proposal YAML that may contain transport-style escapes.
+
+    Returns:
+        Text with recognized escape runs replaced by real characters.
     """
     if not text:
         return text
@@ -57,9 +63,17 @@ def decode_escaped_proposal_text(text: str) -> str:
 
 
 def normalize_proposal_yaml(text: str) -> str:
-    """Return proposal YAML with real line breaks instead of literal escape sequences."""
+    """Return proposal YAML with real line breaks instead of literal escape sequences.
+
+    Args:
+        text: Proposal YAML text, possibly CRLF or transport-escaped.
+
+    Returns:
+        Text with LF line endings and decoded escape sequences when flattened.
+    """
     if not text:
         return text
     normalized = text.replace("\r\n", "\n")
-    decoded = decode_escaped_proposal_text(normalized)
-    return decoded
+    if "\n" in normalized.rstrip("\n") or "\\n" not in normalized:
+        return normalized
+    return decode_escaped_proposal_text(normalized)

@@ -155,10 +155,28 @@ describe('resolveProposalYamlText', () => {
     );
   });
 
-  it('does not recover escaped text without a diff', () => {
-    const flat = '--- \\n- name: foo';
+  it('recovers transport-flattened YAML without a diff', () => {
+    const flat = '--- \\n- name: foo\\n  debug:\\n    msg: hi';
+    expect(resolveProposalYamlText(flat)).toBe(
+      '--- \n- name: foo\n  debug:\n    msg: hi',
+    );
+    expect(hasUnresolvedProposalEscapes(flat)).toBe(false);
+  });
+
+  it('does not recover inline quoted escapes without a diff', () => {
+    const flat = 'msg: "a\\nb"';
     expect(resolveProposalYamlText(flat)).toBe(flat);
     expect(hasUnresolvedProposalEscapes(flat)).toBe(true);
+  });
+
+  it('renders transport-flattened assess YAML with real line breaks', () => {
+    const flat =
+      '--- \\n- name: Find all roles\\n  ansible.builtin.find:\\n    paths: /etc\\n';
+    const { container } = render(createElement(CurrentYamlView, { text: flat }));
+    const content = container.querySelector('.apme-diff-content')?.textContent ?? '';
+    expect(content).toContain('- name: Find all roles');
+    expect(content).toContain('ansible.builtin.find:');
+    expect(content).not.toContain('\\n');
   });
 
   it('warns when proposal source is unverified while keeping panes aligned', () => {

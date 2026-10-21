@@ -45,7 +45,7 @@ function maskQuotedScalars(text: string): string {
   const out: string[] = [];
   let i = 0;
   while (i < text.length) {
-    const ch = text[i];
+    const ch = text[i]!;
     if (ch === '"' || ch === "'") {
       const quote = ch;
       out.push(quote);

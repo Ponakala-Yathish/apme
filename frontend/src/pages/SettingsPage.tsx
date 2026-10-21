@@ -107,7 +107,7 @@ function GalaxyServerFormModal({
           name: form.name,
           url: form.url,
           auth_url: form.auth_url,
-          token: form.token,
+          ...(form.token ? { token: form.token } : {}),
           validate_certs,
         };
         await updateGalaxyServer(editing.id, body, api);

@@ -31,6 +31,12 @@ def test_normalize_preserves_real_multiline() -> None:
     assert normalize_proposal_yaml(source) == source
 
 
+def test_normalize_preserves_quoted_escape_and_structure_markers() -> None:
+    """Preserve escape-like structural text inside quoted YAML scalars."""
+    for source in ('msg: "a\\nb"', 'msg: "a\\n  - name: b"'):
+        assert normalize_proposal_yaml(source) == source
+
+
 def test_normalize_crlf() -> None:
     """Normalize CRLF line endings to LF."""
     assert normalize_proposal_yaml("a\r\nb") == "a\nb"
@@ -46,8 +52,8 @@ def test_backslash_without_escape_letter_preserved() -> None:
     assert decode_escaped_proposal_text("win\\\\share") == "win\\\\share"
 
 
-def test_parse_node_response_normalizes_fixed_snippet() -> None:
-    """Normalize escaped fixed_snippet from AI node responses."""
+def test_parse_node_response_parses_fixed_snippet() -> None:
+    """Parse fixed_snippet from an AI node response."""
     original = "- name: old\n  debug:\n    msg: x\n"
     response = (
         '{"fixed_snippet": "- name: new\\n  debug:\\n    msg: y\\n", '
@@ -55,5 +61,4 @@ def test_parse_node_response_normalizes_fixed_snippet() -> None:
     )
     fix = _parse_node_response(response, original)
     assert fix is not None
-    assert "\n" in fix.fixed_snippet
-    assert "\\n" not in fix.fixed_snippet
+    assert fix.fixed_snippet == "- name: new\n  debug:\n    msg: y\n"

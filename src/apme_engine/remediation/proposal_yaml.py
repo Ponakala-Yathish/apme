@@ -64,12 +64,27 @@ def decode_escaped_proposal_text(text: str) -> str:
     return "".join(out)
 
 
+def _quote_starts_scalar(text: str, index: int) -> bool:
+    line_start = text.rfind("\n", 0, index) + 1
+    escaped_line_break = text.rfind("\\n", 0, index)
+    if escaped_line_break >= 0 and escaped_line_break + 2 > line_start:
+        line_start = escaped_line_break + 2
+    prefix = text[line_start:index]
+    trimmed = prefix.rstrip(" \t")
+    if not trimmed or trimmed in ("---", "-"):
+        return True
+    if trimmed.endswith(("[", "{", ",")):
+        return True
+    colon = prefix.find(":")
+    return colon >= 0 and not prefix[colon + 1 :].strip()
+
+
 def _mask_quoted_scalars(text: str) -> str:
     out: list[str] = []
     index = 0
     while index < len(text):
         char = text[index]
-        if char not in ('"', "'"):
+        if char not in ('"', "'") or not _quote_starts_scalar(text, index):
             out.append(char)
             index += 1
             continue
@@ -77,6 +92,10 @@ def _mask_quoted_scalars(text: str) -> str:
         out.append(quote)
         index += 1
         while index < len(text):
+            if char == "'" and text[index : index + 2] == "''":
+                out.extend((" ", " "))
+                index += 2
+                continue
             if text[index] == "\\" and index + 1 < len(text):
                 out.extend((" ", " "))
                 index += 2
@@ -97,6 +116,10 @@ def _decode_flattened_yaml(text: str) -> str:
     while index < len(text):
         char = text[index]
         if quote is not None:
+            if quote == "'" and text[index : index + 2] == "''":
+                out.extend(("'", "'"))
+                index += 2
+                continue
             if char == "\\" and index + 1 < len(text):
                 out.extend((char, text[index + 1]))
                 index += 2
@@ -106,7 +129,7 @@ def _decode_flattened_yaml(text: str) -> str:
             out.append(char)
             index += 1
             continue
-        if char in ('"', "'"):
+        if char in ('"', "'") and _quote_starts_scalar(text, index):
             quote = char
             out.append(char)
             index += 1

@@ -31,6 +31,13 @@ def test_normalize_unnamed_task_entry() -> None:
     assert normalize_proposal_yaml(flat) == ("- hosts: all\n  tasks:\n    - ansible.builtin.debug:\n        msg: hi")
 
 
+def test_normalize_plain_scalar_with_apostrophe() -> None:
+    """Do not mistake an apostrophe in a plain scalar for a quote delimiter."""
+    flat = r"--- \n- name: What's up\n  debug:\n    msg: hi"
+    expected = "--- \n- name: What's up\n  debug:\n    msg: hi"
+    assert normalize_proposal_yaml(flat) == expected
+
+
 def test_normalize_preserves_real_multiline() -> None:
     """Leave already-multiline YAML unchanged."""
     source = "---\n- name: ok\n  debug:\n    msg: x\n"

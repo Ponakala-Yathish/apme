@@ -163,6 +163,25 @@ describe('resolveProposalYamlText', () => {
     expect(hasUnresolvedProposalEscapes(flat)).toBe(false);
   });
 
+  it('preserves apostrophes in plain scalars while recovering flattened YAML', () => {
+    const flat = "--- \\n- name: What's up\\n  debug:\\n    msg: hi";
+    expect(resolveProposalYamlText(flat)).toBe(
+      "--- \n- name: What's up\n  debug:\n    msg: hi",
+    );
+  });
+
+  it('preserves quoted escapes and recognizes unnamed flattened tasks', () => {
+    const mixed = '--- \\n- name: task\\n  debug:\\n    msg: "a\\nb"';
+    expect(resolveProposalYamlText(mixed)).toBe(
+      '--- \n- name: task\n  debug:\n    msg: "a\\nb"',
+    );
+
+    const unnamed = '- hosts: all\\n  tasks:\\n    - ansible.builtin.debug:\\n        msg: hi';
+    expect(resolveProposalYamlText(unnamed)).toBe(
+      '- hosts: all\n  tasks:\n    - ansible.builtin.debug:\n        msg: hi',
+    );
+  });
+
   it('does not recover inline quoted escapes without a diff', () => {
     const flat = 'msg: "a\\nb"';
     expect(resolveProposalYamlText(flat)).toBe(flat);

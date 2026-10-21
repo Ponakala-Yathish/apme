@@ -90,6 +90,44 @@ def _mask_quoted_scalars(text: str) -> str:
     return "".join(out)
 
 
+def _decode_flattened_yaml(text: str) -> str:
+    out: list[str] = []
+    quote: str | None = None
+    index = 0
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == "\\" and index + 1 < len(text):
+                out.extend((char, text[index + 1]))
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+            out.append(char)
+            index += 1
+            continue
+        if char in ('"', "'"):
+            quote = char
+            out.append(char)
+            index += 1
+            continue
+        if char == "\\":
+            end = _escaped_token_end(text, index)
+            if end is not None:
+                out.append("\t" if text[end - 1] == "t" else "\n")
+                index = end
+                continue
+            run_end = index + 1
+            while run_end < len(text) and text[run_end] == "\\":
+                run_end += 1
+            out.append(text[index:run_end])
+            index = run_end
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
 def _is_transport_flattened_yaml(text: str) -> bool:
     candidate = text.rstrip("\n")
     if not candidate.strip() or "\n" in candidate or "\\n" not in candidate:
@@ -97,9 +135,12 @@ def _is_transport_flattened_yaml(text: str) -> bool:
     if re.match(r"^--- \\n", candidate) or re.match(r"^---\\n", candidate):
         return True
     unquoted = _mask_quoted_scalars(candidate)
-    if re.search(r"\\n\s+(- name:|ansible\.|debug:|vars:|loop:|register:)", unquoted):
+    if re.search(
+        r"\\n\s+(?:-\s+)?(?:name:|ansible\.|debug:|vars:|loop:|register:)",
+        unquoted,
+    ):
         return True
-    decoded = decode_escaped_proposal_text(candidate)
+    decoded = _decode_flattened_yaml(candidate)
     if "\n" not in decoded:
         return False
     decoded_unquoted = _mask_quoted_scalars(decoded)
@@ -122,4 +163,4 @@ def normalize_proposal_yaml(text: str) -> str:
     normalized = text.replace("\r\n", "\n")
     if not _is_transport_flattened_yaml(normalized):
         return normalized
-    return decode_escaped_proposal_text(normalized)
+    return _decode_flattened_yaml(normalized)

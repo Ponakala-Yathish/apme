@@ -25,6 +25,12 @@ def test_normalize_proposal_yaml_portal_next_shape() -> None:
     assert "ansible.builtin.find:" in out
 
 
+def test_normalize_unnamed_task_entry() -> None:
+    """Recognize flattened YAML with an unnamed task entry."""
+    flat = r"- hosts: all\n  tasks:\n    - ansible.builtin.debug:\n        msg: hi"
+    assert normalize_proposal_yaml(flat) == ("- hosts: all\n  tasks:\n    - ansible.builtin.debug:\n        msg: hi")
+
+
 def test_normalize_preserves_real_multiline() -> None:
     """Leave already-multiline YAML unchanged."""
     source = "---\n- name: ok\n  debug:\n    msg: x\n"
@@ -35,6 +41,13 @@ def test_normalize_preserves_quoted_escape_and_structure_markers() -> None:
     """Preserve escape-like structural text inside quoted YAML scalars."""
     for source in ('msg: "a\\nb"', 'msg: "a\\n  - name: b"'):
         assert normalize_proposal_yaml(source) == source
+
+
+def test_normalize_flattened_yaml_preserves_quoted_escapes() -> None:
+    r"""Decode flattened structure without changing quoted literal ``\n``."""
+    flat = r'--- \n- name: task\n  debug:\n    msg: "a\nb"'
+    expected = '--- \n- name: task\n  debug:\n    msg: "a\\nb"'
+    assert normalize_proposal_yaml(flat) == expected
 
 
 def test_normalize_crlf() -> None:

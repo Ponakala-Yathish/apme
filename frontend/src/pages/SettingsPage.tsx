@@ -43,9 +43,16 @@ interface GalaxyServerFormState {
   url: string;
   token: string;
   auth_url: string;
+  validate_certs: 'default' | 'true' | 'false';
 }
 
-const EMPTY_FORM: GalaxyServerFormState = { name: '', url: '', token: '', auth_url: '' };
+const EMPTY_FORM: GalaxyServerFormState = {
+  name: '',
+  url: '',
+  token: '',
+  auth_url: '',
+  validate_certs: 'default',
+};
 
 function GalaxyServerFormModal({
   isOpen,
@@ -67,7 +74,18 @@ function GalaxyServerFormModal({
     if (isOpen) {
       setForm(
         editing
-          ? { name: editing.name, url: editing.url, token: '', auth_url: editing.auth_url }
+          ? {
+              name: editing.name,
+              url: editing.url,
+              token: '',
+              auth_url: editing.auth_url,
+              validate_certs:
+                editing.validate_certs === null
+                  ? 'default'
+                  : editing.validate_certs
+                    ? 'true'
+                    : 'false',
+            }
           : EMPTY_FORM,
       );
       setError('');
@@ -81,13 +99,16 @@ function GalaxyServerFormModal({
     }
     setSaving(true);
     setError('');
+    const validate_certs =
+      form.validate_certs === 'default' ? null : form.validate_certs === 'true';
     try {
       if (editing) {
-        const body: Record<string, string> = {
+        const body = {
           name: form.name,
           url: form.url,
           auth_url: form.auth_url,
           token: form.token,
+          validate_certs,
         };
         await updateGalaxyServer(editing.id, body, api);
       } else {
@@ -96,6 +117,7 @@ function GalaxyServerFormModal({
           url: form.url,
           token: form.token,
           auth_url: form.auth_url,
+          validate_certs,
         }, api);
       }
       onSaved();
@@ -151,6 +173,27 @@ function GalaxyServerFormModal({
               onChange={(_e, v) => setForm((f) => ({ ...f, auth_url: v }))}
               placeholder="https://sso.redhat.com/auth/realms/..."
             />
+          </FormGroup>
+          <FormGroup label="TLS certificate verification" fieldId="gs-validate-certs">
+            <FormSelect
+              id="gs-validate-certs"
+              value={form.validate_certs}
+              onChange={(_e, value) =>
+                setForm((current) => ({
+                  ...current,
+                  validate_certs: value as GalaxyServerFormState['validate_certs'],
+                }))
+              }
+              aria-label="TLS certificate verification"
+            >
+              <FormSelectOption value="default" label="Use deployment default" />
+              <FormSelectOption value="true" label="Verify certificates" />
+              <FormSelectOption value="false" label="Skip verification" />
+            </FormSelect>
+            <div style={{ marginTop: 6, opacity: 0.7, fontSize: 13 }}>
+              Certificate verification is recommended. Skip it only for trusted lab
+              certificates; for production, configure the Hub CA in the Galaxy Proxy.
+            </div>
           </FormGroup>
         </Form>
       </ModalBody>
@@ -229,6 +272,7 @@ function GalaxyServersSection() {
               <Th>URL</Th>
               <Th>Token</Th>
               <Th>Auth URL</Th>
+              <Th>TLS verification</Th>
               <Th><span className="pf-v6-screen-reader">Actions</span></Th>
             </Tr>
           </Thead>
@@ -252,6 +296,13 @@ function GalaxyServersSection() {
                   ) : (
                     <span style={{ opacity: 0.5 }}>&mdash;</span>
                   )}
+                </Td>
+                <Td dataLabel="TLS verification">
+                  {s.validate_certs === null
+                    ? 'Deployment default'
+                    : s.validate_certs
+                      ? 'Enabled'
+                      : 'Disabled'}
                 </Td>
                 <Td isActionCell>
                   <ActionGroup>

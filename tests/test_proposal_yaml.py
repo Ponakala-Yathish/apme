@@ -38,6 +38,18 @@ def test_normalize_plain_scalar_with_apostrophe() -> None:
     assert normalize_proposal_yaml(flat) == expected
 
 
+def test_normalize_flattened_single_quoted_windows_path() -> None:
+    """Decode later structure after a single-quoted path ending in a backslash."""
+    flat = (
+        r"- hosts: all\n  vars:\n    path: 'C:\Temp\'\n"
+        r"  tasks:\n    - ansible.builtin.debug:\n        msg: done"
+    )
+    expected = (
+        "- hosts: all\n  vars:\n    path: 'C:\\Temp\\'\n  tasks:\n    - ansible.builtin.debug:\n        msg: done"
+    )
+    assert normalize_proposal_yaml(flat) == expected
+
+
 def test_normalize_preserves_real_multiline() -> None:
     """Leave already-multiline YAML unchanged."""
     source = "---\n- name: ok\n  debug:\n    msg: x\n"

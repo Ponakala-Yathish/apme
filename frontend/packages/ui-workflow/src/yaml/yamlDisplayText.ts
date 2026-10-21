@@ -70,7 +70,7 @@ function maskQuotedScalars(text: string): string {
           i += 2;
           continue;
         }
-        if (text[i] === '\\' && i + 1 < text.length) {
+        if (quote === '"' && text[i] === '\\' && i + 1 < text.length) {
           out.push(' ', ' ');
           i += 2;
           continue;
@@ -103,7 +103,7 @@ function decodeTransportFlattenedYaml(text: string): string {
         cursor += 2;
         continue;
       }
-      if (ch === '\\' && cursor + 1 < text.length) {
+      if (quote === '"' && ch === '\\' && cursor + 1 < text.length) {
         out += text.slice(cursor, cursor + 2);
         cursor += 2;
         continue;

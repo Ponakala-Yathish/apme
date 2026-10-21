@@ -96,7 +96,7 @@ def _mask_quoted_scalars(text: str) -> str:
                 out.extend((" ", " "))
                 index += 2
                 continue
-            if text[index] == "\\" and index + 1 < len(text):
+            if quote == '"' and text[index] == "\\" and index + 1 < len(text):
                 out.extend((" ", " "))
                 index += 2
                 continue
@@ -120,7 +120,7 @@ def _decode_flattened_yaml(text: str) -> str:
                 out.extend(("'", "'"))
                 index += 2
                 continue
-            if char == "\\" and index + 1 < len(text):
+            if quote == '"' and char == "\\" and index + 1 < len(text):
                 out.extend((char, text[index + 1]))
                 index += 2
                 continue

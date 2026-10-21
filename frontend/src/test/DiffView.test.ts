@@ -182,6 +182,16 @@ describe('resolveProposalYamlText', () => {
     );
   });
 
+  it('decodes structure after a single-quoted Windows path ending in a backslash', () => {
+    const flat =
+      "- hosts: all\\n  vars:\\n" +
+      "    path: 'C:\\Temp\\'\\n  tasks:\\n" +
+      '    - ansible.builtin.debug:\\n        msg: done';
+    expect(resolveProposalYamlText(flat)).toBe(
+      "- hosts: all\n  vars:\n    path: 'C:\\Temp\\'\n  tasks:\n    - ansible.builtin.debug:\n        msg: done",
+    );
+  });
+
   it('does not recover inline quoted escapes without a diff', () => {
     const flat = 'msg: "a\\nb"';
     expect(resolveProposalYamlText(flat)).toBe(flat);

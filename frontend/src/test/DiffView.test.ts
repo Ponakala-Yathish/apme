@@ -169,6 +169,12 @@ describe('resolveProposalYamlText', () => {
     expect(hasUnresolvedProposalEscapes(flat)).toBe(true);
   });
 
+  it('does not treat structural markers inside quoted scalars as flattened YAML', () => {
+    const flat = 'msg: "a\\n  - name: b"';
+    expect(resolveProposalYamlText(flat)).toBe(flat);
+    expect(hasUnresolvedProposalEscapes(flat)).toBe(true);
+  });
+
   it('renders transport-flattened assess YAML with real line breaks', () => {
     const flat =
       '--- \\n- name: Find all roles\\n  ansible.builtin.find:\\n    paths: /etc\\n';

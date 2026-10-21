@@ -40,16 +40,52 @@ export function normalizeLineEndings(text: string): string {
   return text.replace(/\r\n/g, '\n');
 }
 
+/** Mask quoted scalar interiors so structural ``\\n`` probes ignore escape-like content inside quotes. */
+function maskQuotedScalars(text: string): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const ch = text[i];
+    if (ch === '"' || ch === "'") {
+      const quote = ch;
+      out.push(quote);
+      i++;
+      while (i < text.length) {
+        if (text[i] === '\\' && i + 1 < text.length) {
+          out.push(' ', ' ');
+          i += 2;
+          continue;
+        }
+        if (text[i] === quote) {
+          out.push(quote);
+          i++;
+          break;
+        }
+        out.push(' ');
+        i++;
+      }
+      continue;
+    }
+    out.push(ch);
+    i++;
+  }
+  return out.join('');
+}
+
 /** True when YAML arrived as one line with transport ``\\n`` tokens (portal-next shape). */
 export function isTransportFlattenedYaml(text: string): boolean {
   const n = normalizeLineEndings(text);
   if (!n.trim() || n.includes('\n')) return false;
   if (!n.includes('\\n')) return false;
   if (/^--- \\n/.test(n) || /^---\\n/.test(n)) return true;
-  if (/\\n\s+(- name:|ansible\.|debug:|vars:|loop:|register:)/.test(n)) return true;
+  const unquoted = maskQuotedScalars(n);
+  if (/\\n\s+(- name:|ansible\.|debug:|vars:|loop:|register:)/.test(unquoted)) return true;
   const decoded = decodeEscapedProposalText(n);
   if (!decoded.includes('\n')) return false;
-  return /\n\s+- name:/.test(decoded) || /^\s*---\s*$/m.test(decoded);
+  const decodedUnquoted = maskQuotedScalars(decoded);
+  return (
+    /\n\s+- name:/.test(decodedUnquoted) || /^\s*---\s*$/m.test(decodedUnquoted)
+  );
 }
 
 /** Decode transport-flattened YAML for display; leave other shapes unchanged. */

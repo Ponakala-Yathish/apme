@@ -406,6 +406,7 @@ def test_valid_collection_spec_checks_version_operands(spec: str, expected: bool
         "ansible.posix:>=1, <2",
         "ansible.posix:>=",
         "ansible.posix:>=1.0.0,<=",
+        " " * 256 + "ansible.posix",
         "ansible.posix:" + "0" * 256,
     ],
 )  # type: ignore[untyped-decorator]

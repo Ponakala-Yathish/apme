@@ -931,6 +931,8 @@ def create_app(
         if not app.state.galaxy_config_ready:
             raise HTTPException(status_code=503, detail="Galaxy configuration has not been restored yet")
 
+        if any(len(spec) > 255 for spec in body.specs):
+            raise HTTPException(status_code=422, detail="Invalid collection spec")
         specs = [spec.strip() for spec in body.specs]
         if any(not _valid_collection_spec(spec) for spec in specs):
             raise HTTPException(status_code=422, detail="Invalid collection spec")

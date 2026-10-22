@@ -281,6 +281,66 @@ class _PrepareCollectionsPayload(BaseModel):  # type: ignore[misc]
     specs: list[str]
 
 
+_COLLECTION_NAME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+_COLLECTION_VERSION_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._*+!<>=,~-")
+_COLLECTION_VERSION_OPERAND_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._*+-")
+_COLLECTION_VERSION_OPERATORS = ("!=", "==", ">=", "<=", ">", "<")
+
+
+def _valid_collection_spec(spec: str) -> bool:
+    """Validate one bounded Galaxy collection spec.
+
+    Args:
+        spec: Collection FQCN with an optional version constraint.
+
+    Returns:
+        Whether the spec matches ``namespace.collection[:version]``.
+    """
+    if not spec or len(spec) > 255:
+        return False
+    name_and_version = spec.split(":")
+    if len(name_and_version) > 2:
+        return False
+    namespace, separator, collection = name_and_version[0].partition(".")
+    if (
+        not separator
+        or not namespace
+        or not collection
+        or any(char not in _COLLECTION_NAME_CHARS for char in namespace)
+        or any(char not in _COLLECTION_NAME_CHARS for char in collection)
+    ):
+        return False
+    if len(name_and_version) == 2:
+        version = name_and_version[1]
+        if not version or any(char not in _COLLECTION_VERSION_CHARS for char in version):
+            return False
+        if version == "*":
+            return True
+        constraints = version.split(",")
+        for constraint in constraints:
+            if not constraint:
+                return False
+            if constraint == "*":
+                return False
+            operator = next((op for op in _COLLECTION_VERSION_OPERATORS if constraint.startswith(op)), "")
+            operand = constraint[len(operator) :]
+            if (
+                not operand
+                or any(char not in _COLLECTION_VERSION_OPERAND_CHARS for char in operand)
+                or not any(char.isalnum() for char in operand)
+            ):
+                return False
+            if len(constraints) > 1 and not operator:
+                return False
+        has_operator = any(constraints[0].startswith(op) for op in _COLLECTION_VERSION_OPERATORS)
+        normalized_version = version if has_operator else f"=={version}"
+        try:
+            SpecifierSet(normalized_version)
+        except InvalidSpecifier:
+            return False
+    return True
+
+
 def _source_environment() -> dict[str, str]:
     """Return native Galaxy configuration and trust environment inputs.
 
@@ -871,11 +931,10 @@ def create_app(
         if not app.state.galaxy_config_ready:
             raise HTTPException(status_code=503, detail="Galaxy configuration has not been restored yet")
 
+        if any(len(spec) > 255 for spec in body.specs):
+            raise HTTPException(status_code=422, detail="Invalid collection spec")
         specs = [spec.strip() for spec in body.specs]
-        if any(
-            len(spec) > 255 or not re.fullmatch(r"[A-Za-z0-9_]+\.[A-Za-z0-9_]+(?::[A-Za-z0-9._*+!<>=,~-]+)?", spec)
-            for spec in specs
-        ):
+        if any(not _valid_collection_spec(spec) for spec in specs):
             raise HTTPException(status_code=422, detail="Invalid collection spec")
 
         generation = app.state.galaxy_config_generation

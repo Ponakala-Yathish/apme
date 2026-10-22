@@ -16,6 +16,7 @@ import hashlib
 import inspect
 import logging
 import os
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -45,6 +46,7 @@ from apme_gateway.scm.repo_url import normalize_repo_url
 logger = logging.getLogger(__name__)
 
 _GRPC_MAX_MSG = 50 * 1024 * 1024  # 50 MiB — matches Engine
+_AUTH_CACHE_HMAC_KEY = secrets.token_bytes(32)
 
 # PE-25: operator-wait timeouts (env-overridable). The driver must never hang
 # forever holding temp dirs/streams waiting on an operator who never responds.
@@ -262,13 +264,15 @@ def _auth_cache_marker(scm_token: str | None, url_userpass: tuple[str, str] | No
         material = f"{url_userpass[0]}:{url_userpass[1]}"
     else:
         return ""
-    # Process-local cache partition fingerprint — not password storage.
-    # BLAKE2 personalization separates this from other BLAKE2 digest uses.
-    # codeql[py/weak-sensitive-data-hashing]
+    # Keyed BLAKE2 keeps low-entropy credentials opaque if a cache key leaks.
+    # This is only an in-memory cache partition, not password storage or auth;
+    # the process-local cache makes a randomly generated key sufficient.
     token_hash = hashlib.blake2b(
         material.encode(),
-        digest_size=8,
+        digest_size=32,
+        key=_AUTH_CACHE_HMAC_KEY,
         person=b"apme-auth-cache",
+        usedforsecurity=False,
     ).hexdigest()
     return f":auth:{token_hash}"
 

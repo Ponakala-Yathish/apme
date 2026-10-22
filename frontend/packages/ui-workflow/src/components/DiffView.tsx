@@ -1,5 +1,11 @@
 import type React from 'react';
 import { useEffect, useMemo, useRef } from 'react';
+import {
+  decodeEscapedProposalText,
+  isTransportFlattenedYaml,
+  normalizeLineEndings,
+  normalizeTransportFlattenedYaml,
+} from '../yaml/yamlDisplayText';
 import { YamlLine } from './yamlHighlight';
 
 export interface DiffViewProps {
@@ -42,46 +48,6 @@ const lineStyles: Record<string, React.CSSProperties> = {
   header: { color: 'var(--pf-t--global--color--status--info--default)', fontWeight: 600 },
   context: {},
 };
-
-function escapedTokenEnd(text: string, start: number): number | undefined {
-  let cursor = start;
-  while (text[cursor] === '\\') cursor++;
-  if (cursor === start) return undefined;
-  if (text[cursor] === 'n' || text[cursor] === 't') return cursor + 1;
-  if (text[cursor] !== 'r') return undefined;
-
-  cursor++;
-  const newlineSlashStart = cursor;
-  while (text[cursor] === '\\') cursor++;
-  return cursor > newlineSlashStart && text[cursor] === 'n' ? cursor + 1 : undefined;
-}
-
-/** Decode candidate transport escapes; callers must verify against full source. */
-function decodeEscapedProposalText(text: string): string {
-  let out = '';
-  for (let cursor = 0; cursor < text.length; ) {
-    const end = text[cursor] === '\\' ? escapedTokenEnd(text, cursor) : undefined;
-    if (end === undefined) {
-      if (text[cursor] === '\\') {
-        let runEnd = cursor + 1;
-        while (text[runEnd] === '\\') runEnd++;
-        out += text.slice(cursor, runEnd);
-        cursor = runEnd;
-      } else {
-        out += text[cursor]!;
-        cursor++;
-      }
-      continue;
-    }
-    out += text[end - 1] === 't' ? '\t' : '\n';
-    cursor = end;
-  }
-  return out;
-}
-
-function normalizeLineEndings(text: string): string {
-  return text.replace(/\r\n/g, '\n');
-}
 
 function sourceLineCount(text: string): number {
   if (!text) return 0;
@@ -225,6 +191,7 @@ export function hasUnresolvedProposalEscapes(
   diff?: string,
   completeAfterText?: string,
 ): boolean {
+  if (isTransportFlattenedYaml(text)) return false;
   const candidate = decodeEscapedProposalText(text);
   if (candidate === text) return false;
   if (
@@ -244,8 +211,11 @@ export function resolveProposalYamlText(
   role: 'before' | 'after' = 'before',
   completeAfterText?: string,
 ): string {
-  if (!text.trim() || role === 'after') return text;
-  return recoverProposalYamlText(text, diff, completeAfterText) ?? text;
+  if (!text.trim()) return text;
+  if (role === 'after') return normalizeTransportFlattenedYaml(text);
+  const recovered = recoverProposalYamlText(text, diff, completeAfterText);
+  if (recovered !== undefined) return recovered;
+  return normalizeTransportFlattenedYaml(text);
 }
 
 /** Recover before/after text from a unified diff when the API omits them. */
@@ -529,7 +499,8 @@ export function CurrentYamlView({
   className?: string;
   highlightLine?: number | null;
 }) {
-  const lines = text.replace(/\n$/, '').split('\n');
+  const displayText = resolveProposalYamlText(text);
+  const lines = displayText.replace(/\n$/, '').split('\n');
   const containerRef = useRef<HTMLDivElement>(null);
   useScrollHighlight(containerRef, highlightLine);
 
@@ -585,7 +556,7 @@ export function DiffView({
     if (!beforeAvailable || !afterAvailable) return null;
     return {
       before: resolveProposalYamlText(beforeText, diff, 'before', afterText),
-      after: afterText,
+      after: resolveProposalYamlText(afterText, diff, 'after', beforeText),
       sourceWarning: hasUnresolvedProposalEscapes(beforeText, diff, afterText),
     };
   }, [before, after, diff]);

@@ -155,10 +155,63 @@ describe('resolveProposalYamlText', () => {
     );
   });
 
-  it('does not recover escaped text without a diff', () => {
-    const flat = '--- \\n- name: foo';
+  it('recovers transport-flattened YAML without a diff', () => {
+    const flat = '--- \\n- name: foo\\n  debug:\\n    msg: hi';
+    expect(resolveProposalYamlText(flat)).toBe(
+      '--- \n- name: foo\n  debug:\n    msg: hi',
+    );
+    expect(hasUnresolvedProposalEscapes(flat)).toBe(false);
+  });
+
+  it('preserves apostrophes in plain scalars while recovering flattened YAML', () => {
+    const flat = "--- \\n- name: What's up\\n  debug:\\n    msg: hi";
+    expect(resolveProposalYamlText(flat)).toBe(
+      "--- \n- name: What's up\n  debug:\n    msg: hi",
+    );
+  });
+
+  it('preserves quoted escapes and recognizes unnamed flattened tasks', () => {
+    const mixed = '--- \\n- name: task\\n  debug:\\n    msg: "a\\nb"';
+    expect(resolveProposalYamlText(mixed)).toBe(
+      '--- \n- name: task\n  debug:\n    msg: "a\\nb"',
+    );
+
+    const unnamed = '- hosts: all\\n  tasks:\\n    - ansible.builtin.debug:\\n        msg: hi';
+    expect(resolveProposalYamlText(unnamed)).toBe(
+      '- hosts: all\n  tasks:\n    - ansible.builtin.debug:\n        msg: hi',
+    );
+  });
+
+  it('decodes structure after a single-quoted Windows path ending in a backslash', () => {
+    const flat =
+      "- hosts: all\\n  vars:\\n" +
+      "    path: 'C:\\Temp\\'\\n  tasks:\\n" +
+      '    - ansible.builtin.debug:\\n        msg: done';
+    expect(resolveProposalYamlText(flat)).toBe(
+      "- hosts: all\n  vars:\n    path: 'C:\\Temp\\'\n  tasks:\n    - ansible.builtin.debug:\n        msg: done",
+    );
+  });
+
+  it('does not recover inline quoted escapes without a diff', () => {
+    const flat = 'msg: "a\\nb"';
     expect(resolveProposalYamlText(flat)).toBe(flat);
     expect(hasUnresolvedProposalEscapes(flat)).toBe(true);
+  });
+
+  it('does not treat structural markers inside quoted scalars as flattened YAML', () => {
+    const flat = 'msg: "a\\n  - name: b"';
+    expect(resolveProposalYamlText(flat)).toBe(flat);
+    expect(hasUnresolvedProposalEscapes(flat)).toBe(true);
+  });
+
+  it('renders transport-flattened assess YAML with real line breaks', () => {
+    const flat =
+      '--- \\n- name: Find all roles\\n  ansible.builtin.find:\\n    paths: /etc\\n';
+    const { container } = render(createElement(CurrentYamlView, { text: flat }));
+    const content = container.querySelector('.apme-diff-content')?.textContent ?? '';
+    expect(content).toContain('- name: Find all roles');
+    expect(content).toContain('ansible.builtin.find:');
+    expect(content).not.toContain('\\n');
   });
 
   it('warns when proposal source is unverified while keeping panes aligned', () => {

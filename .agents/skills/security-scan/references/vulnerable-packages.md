@@ -1,6 +1,6 @@
 # Vulnerable Packages Registry
 
-Last updated: 2026-08-18
+Last updated: 2026-10-22
 
 This file contains known vulnerable packages to scan for. Add new entries
 as security advisories are published.
@@ -44,6 +44,73 @@ as security advisories are published.
 - **Pattern**: `litellm`
 - **Files**: `requirements*.txt`, `pyproject.toml`, `setup.py`
 - **Remediation**: Upgrade to patched version or remove
+
+### Python dependency advisories (October 2026)
+
+These entries cover all 17 open Dependabot alerts returned for APME on
+2026-10-22. GitHub still reports `urllib3` 2.7.0, while the existing lock
+resolves 2.8.0; the floor below keeps that fix explicit in later resolutions.
+
+#### virtualenv
+
+- **Package**: `virtualenv`
+- **Affected**: `< 21.14.9`
+- **Severity**: HIGH (includes MEDIUM advisories)
+- **Sources**:
+  [GHSA-cw65-gx24-rc82](https://github.com/advisories/GHSA-cw65-gx24-rc82),
+  [GHSA-43mp-35q3-x3fq](https://github.com/advisories/GHSA-43mp-35q3-x3fq),
+  [GHSA-c978-59m8-c77v](https://github.com/advisories/GHSA-c978-59m8-c77v),
+  [GHSA-vxj4-q4g9-crj7](https://github.com/advisories/GHSA-vxj4-q4g9-crj7),
+  [GHSA-5vjq-rrrf-7h2q](https://github.com/advisories/GHSA-5vjq-rrrf-7h2q),
+  [GHSA-c947-3pg5-gm8q](https://github.com/advisories/GHSA-c947-3pg5-gm8q),
+  [GHSA-8rjx-v5ww-45pp](https://github.com/advisories/GHSA-8rjx-v5ww-45pp),
+  [GHSA-p58f-9548-mpm2](https://github.com/advisories/GHSA-p58f-9548-mpm2),
+  [GHSA-x78j-v8h9-3j2q](https://github.com/advisories/GHSA-x78j-v8h9-3j2q),
+  [GHSA-94p9-xgh2-xp45](https://github.com/advisories/GHSA-94p9-xgh2-xp45),
+  [GHSA-9h9j-4vrj-gf7g](https://github.com/advisories/GHSA-9h9j-4vrj-gf7g)
+- **Pattern**: `virtualenv`
+- **Files**: `pyproject.toml`, `uv.lock`, `ci/tox-requirements.txt`
+- **Remediation**: Use `virtualenv >= 21.14.9`; CI pins 21.14.12 to match `uv.lock`.
+
+#### Black
+
+- **Package**: `black`
+- **Affected**: `< 26.10.1`
+- **Severity**: HIGH
+- **Source**: [GHSA-cg8m-r9f2-5wm2](https://github.com/advisories/GHSA-cg8m-r9f2-5wm2)
+- **Pattern**: `black`
+- **Files**: `pyproject.toml`, `uv.lock`
+- **Remediation**: Upgrade to `black >= 26.10.1`
+
+#### certifi
+
+- **Package**: `certifi`
+- **Affected**: `< 2026.10.19`
+- **Severity**: CRITICAL
+- **Source**: [GHSA-6q48-6c7w-9gw2](https://github.com/advisories/GHSA-6q48-6c7w-9gw2)
+- **Pattern**: `certifi`
+- **Files**: `pyproject.toml`, `uv.lock`
+- **Remediation**: Upgrade to `certifi >= 2026.10.19` and rebuild images that vendor its CA bundle
+
+#### OpenTelemetry Python API
+
+- **Package**: `opentelemetry-api`
+- **Affected**: `<= 1.45.0`
+- **Severity**: MEDIUM
+- **Source**: [GHSA-xcq7-p3pf-p88h](https://github.com/advisories/GHSA-xcq7-p3pf-p88h)
+- **Pattern**: `opentelemetry-api`
+- **Files**: `pyproject.toml`, `uv.lock`
+- **Remediation**: Upgrade to `opentelemetry-api >= 1.45.1`
+
+#### urllib3
+
+- **Package**: `urllib3`
+- **Affected**: `>= 1.10.3, < 2.8.0` (the related APME lock entry is 2.8.0)
+- **Severity**: HIGH (includes a MEDIUM advisory)
+- **Source**: [GHSA-8988-9cw3-xx77](https://github.com/advisories/GHSA-8988-9cw3-xx77), [GHSA-vxq7-64xx-v4gw](https://github.com/advisories/GHSA-vxq7-64xx-v4gw), [GHSA-gh4c-6fx4-qh6g](https://github.com/advisories/GHSA-gh4c-6fx4-qh6g)
+- **Pattern**: `urllib3`
+- **Files**: `pyproject.toml`, `uv.lock`
+- **Remediation**: Require `urllib3 >= 2.8.0`
 
 ---
 
@@ -180,7 +247,7 @@ TRIVY_ACTIONS="aquasecurity/setup-trivy|aquasecurity/trivy-action"
 CHECKMARX_ACTIONS="checkmarx/kics-github-action|checkmarx/ast-github-action"
 
 # Python
-PYTHON_VULNS="litellm"
+PYTHON_VULNS="litellm|virtualenv|black|certifi|opentelemetry-api|urllib3"
 
 # Go
 GO_VULNS="github.com/aquasecurity/trivy"
@@ -191,6 +258,10 @@ NPM_SCOPES="@pypestream/|@leafnoise/|@opengov/|@virtahealth/|@airtm/|@teale\\.io
 # npm unscoped (Canister worm)
 NPM_UNSCOPED="eslint-config-ppf|react-leaflet-marker-layer|react-leaflet-cluster-layer|react-autolink-text|opengov-k6-core|jest-preset-ppf|cit-playwright-tests|eslint-config-service-users|babel-plugin-react-pure-component|react-leaflet-heatmap-layer"
 ```
+
+For Python package patterns, inspect resolved versions in `uv.lock` against
+the affected ranges above; a package-name match alone does not indicate that
+the resolved version is vulnerable.
 
 ---
 

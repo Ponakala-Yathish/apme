@@ -361,8 +361,53 @@ def test_prepare_collections_requires_admin_auth(tmp_path: Path, monkeypatch: py
 
 
 @pytest.mark.parametrize(
+    ("spec", "expected"),
+    [
+        ("ansible.posix", True),
+        ("ansible.posix:1.5.4", True),
+        ("ansible.posix:>=1.0.0,<2.0.0", True),
+        ("ansible.posix:>1.0.0", True),
+        ("ansible.posix:<=2.0.0", True),
+        ("ansible.posix:!=1.0.0", True),
+        ("ansible.posix:==1.0.0", True),
+        ("ansible.posix:*", True),
+        ("ansible.posix:>=", False),
+        ("ansible.posix:==", False),
+        ("ansible.posix:!=", False),
+        ("ansible.posix:,<", False),
+        ("ansible.posix:>=.", False),
+        ("ansible.posix:>=1.0.0,", False),
+        ("ansible.posix:>=1.0.0,,<2.0.0", False),
+        ("ansible.posix:>=1.0.0,<=", False),
+        ("ansible.posix:~=1.0", False),
+        ("ansible.posix:>=1.0.0,1.5.0", False),
+        ("ansible.posix:...", False),
+        ("ansible.posix:+", False),
+    ],
+)  # type: ignore[untyped-decorator]
+def test_valid_collection_spec_checks_version_operands(spec: str, expected: bool) -> None:
+    """The bounded parser accepts useful constraints and rejects operator-only input.
+
+    Args:
+        spec: Galaxy collection spec to validate.
+        expected: Whether the collection spec should be accepted.
+    """
+    from galaxy_proxy.proxy.server import _valid_collection_spec
+
+    assert _valid_collection_spec(spec) is expected
+
+
+@pytest.mark.parametrize(
     "bad_spec",
-    ["--help", "ansible.posix;echo", "missing-dot", "ansible.posix:>=1, <2", "ansible.posix:" + "0" * 256],
+    [
+        "--help",
+        "ansible.posix;echo",
+        "missing-dot",
+        "ansible.posix:>=1, <2",
+        "ansible.posix:>=",
+        "ansible.posix:>=1.0.0,<=",
+        "ansible.posix:" + "0" * 256,
+    ],
 )  # type: ignore[untyped-decorator]
 def test_prepare_collections_rejects_unsafe_specs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_spec: str
@@ -376,9 +421,13 @@ def test_prepare_collections_rejects_unsafe_specs(
     """
     monkeypatch.setenv("APME_PROXY_ADMIN_TOKEN", ADMIN_TOKEN)
     app = create_app(cache_dir=tmp_path, enable_passthrough=False)
-    with TestClient(app) as client:
+    with (
+        TestClient(app) as client,
+        patch("galaxy_proxy.proxy.server.download_collections", new_callable=AsyncMock) as download,
+    ):
         response = client.post("/admin/prepare-collections", json={"specs": [bad_spec]}, headers=_admin_headers())
     assert response.status_code == 422
+    download.assert_not_awaited()
 
 
 @pytest.mark.parametrize("endpoint", ["wheel", "latest"])  # type: ignore[untyped-decorator]

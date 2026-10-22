@@ -283,10 +283,12 @@ class _PrepareCollectionsPayload(BaseModel):  # type: ignore[misc]
 
 _COLLECTION_NAME_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
 _COLLECTION_VERSION_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._*+!<>=,~-")
+_COLLECTION_VERSION_OPERAND_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._*+-")
+_COLLECTION_VERSION_OPERATORS = ("!=", "==", ">=", "<=", ">", "<")
 
 
 def _valid_collection_spec(spec: str) -> bool:
-    """Validate one bounded Galaxy collection spec using linear scans.
+    """Validate one bounded Galaxy collection spec.
 
     Args:
         spec: Collection FQCN with an optional version constraint.
@@ -311,6 +313,30 @@ def _valid_collection_spec(spec: str) -> bool:
     if len(name_and_version) == 2:
         version = name_and_version[1]
         if not version or any(char not in _COLLECTION_VERSION_CHARS for char in version):
+            return False
+        if version == "*":
+            return True
+        constraints = version.split(",")
+        for constraint in constraints:
+            if not constraint:
+                return False
+            if constraint == "*":
+                return False
+            operator = next((op for op in _COLLECTION_VERSION_OPERATORS if constraint.startswith(op)), "")
+            operand = constraint[len(operator) :]
+            if (
+                not operand
+                or any(char not in _COLLECTION_VERSION_OPERAND_CHARS for char in operand)
+                or not any(char.isalnum() for char in operand)
+            ):
+                return False
+            if len(constraints) > 1 and not operator:
+                return False
+        has_operator = any(constraints[0].startswith(op) for op in _COLLECTION_VERSION_OPERATORS)
+        normalized_version = version if has_operator else f"=={version}"
+        try:
+            SpecifierSet(normalized_version)
+        except InvalidSpecifier:
             return False
     return True
 

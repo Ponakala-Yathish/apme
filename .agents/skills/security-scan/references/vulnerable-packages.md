@@ -70,7 +70,7 @@ resolves 2.8.0; the floor below keeps that fix explicit in later resolutions.
   [GHSA-9h9j-4vrj-gf7g](https://github.com/advisories/GHSA-9h9j-4vrj-gf7g)
 - **Pattern**: `virtualenv`
 - **Files**: `pyproject.toml`, `uv.lock`, `ci/tox-requirements.txt`
-- **Remediation**: Upgrade to `virtualenv >= 21.14.9`
+- **Remediation**: Use `virtualenv >= 21.14.9`; CI pins 21.14.12 to match `uv.lock`.
 
 #### Black
 

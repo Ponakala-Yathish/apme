@@ -13,7 +13,6 @@ import asyncio
 import base64
 import contextlib
 import hashlib
-import hmac
 import inspect
 import logging
 import os
@@ -265,10 +264,16 @@ def _auth_cache_marker(scm_token: str | None, url_userpass: tuple[str, str] | No
         material = f"{url_userpass[0]}:{url_userpass[1]}"
     else:
         return ""
-    # A per-process HMAC prevents cache keys from becoming an offline oracle
-    # for low-entropy credentials if a key is exposed. Cache state is also
-    # process-local, so the random key need not persist across restarts.
-    token_hash = hmac.new(_AUTH_CACHE_HMAC_KEY, material.encode(), hashlib.sha256).hexdigest()
+    # Keyed BLAKE2 keeps low-entropy credentials opaque if a cache key leaks.
+    # This is only an in-memory cache partition, not password storage or auth;
+    # the process-local cache makes a randomly generated key sufficient.
+    token_hash = hashlib.blake2b(
+        material.encode(),
+        digest_size=32,
+        key=_AUTH_CACHE_HMAC_KEY,
+        person=b"apme-auth-cache",
+        usedforsecurity=False,
+    ).hexdigest()
     return f":auth:{token_hash}"
 
 

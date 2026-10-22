@@ -669,12 +669,14 @@ async def test_fetch_remote_head_separates_distinct_tokens() -> None:
 
 
 def test_auth_cache_marker_separates_url_userpass() -> None:
-    """Embedded URL credentials produce opaque, repeatable cache markers."""
+    """Credential source and values produce opaque, distinct cache markers."""
     marker_a = _auth_cache_marker(None, ("deployer", "secret-a"))
     marker_b = _auth_cache_marker(None, ("deployer", "secret-b"))
+    marker_token = _auth_cache_marker("deployer:secret-a", None)
     assert marker_a.startswith(":auth:")
     assert marker_b.startswith(":auth:")
     assert marker_a != marker_b
+    assert marker_a != marker_token
     assert marker_a == _auth_cache_marker(None, ("deployer", "secret-a"))
     assert "secret-a" not in marker_a
 

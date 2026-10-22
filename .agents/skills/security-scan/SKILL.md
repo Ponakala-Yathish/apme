@@ -35,7 +35,7 @@ Searches `.github/workflows/*.yml` and `*.yaml` for:
 
 ### Python Dependencies
 
-Searches `requirements*.txt`, `pyproject.toml`, `setup.py` for:
+Searches `requirements*.txt`, `ci/tox-requirements.txt`, `pyproject.toml`, `setup.py`, and `uv.lock` for:
 - Packages with known vulnerabilities (e.g., `litellm` specific versions)
 
 ### npm Dependencies
@@ -78,6 +78,9 @@ grep -rn "checkmarx/kics-github-action\|checkmarx/ast-github-action" .github/wor
 # Python - LiteLLM
 grep -rn "litellm" requirements*.txt pyproject.toml setup.py 2>/dev/null
 
+# Python - October 2026 advisories; compare uv.lock versions to the registry
+grep -rn "virtualenv\|black\|certifi\|opentelemetry-api\|urllib3" requirements*.txt ci/tox-requirements.txt pyproject.toml uv.lock 2>/dev/null
+
 # Go - Trivy module
 grep -rn "github.com/aquasecurity/trivy" go.mod go.sum 2>/dev/null
 
@@ -118,11 +121,12 @@ Example entry:
 ## Current Advisories
 
 See `references/vulnerable-packages.md` for the full list of tracked
-vulnerabilities. Last updated: 2026-03-25.
+vulnerabilities. Last updated: 2026-10-22.
 
 Categories tracked:
 - Trivy GitHub Actions and Go module
 - LiteLLM Python package
+- Python dependency advisories (virtualenv, Black, certifi, OpenTelemetry API, urllib3)
 - Checkmarx GitHub Actions
 - Canister worm npm packages (66 packages)
 

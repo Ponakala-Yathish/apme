@@ -13,7 +13,9 @@ import asyncio
 import base64
 import contextlib
 import hashlib
+import hmac
 import inspect
+import json
 import logging
 import os
 import secrets
@@ -259,20 +261,20 @@ def _auth_cache_marker(scm_token: str | None, url_userpass: tuple[str, str] | No
         Empty string when unauthenticated, otherwise ``:auth:<hash>``.
     """
     if scm_token:
-        material = scm_token
+        credential_parts = ["scm-token", scm_token]
     elif url_userpass is not None:
-        material = f"{url_userpass[0]}:{url_userpass[1]}"
+        credential_parts = ["url-userpass", *url_userpass]
     else:
         return ""
-    # Keyed BLAKE2 keeps low-entropy credentials opaque if a cache key leaks.
-    # This is only an in-memory cache partition, not password storage or auth;
-    # the process-local cache makes a randomly generated key sufficient.
-    token_hash = hashlib.blake2b(
-        material.encode(),
-        digest_size=32,
-        key=_AUTH_CACHE_HMAC_KEY,
-        person=b"apme-auth-cache",
-        usedforsecurity=False,
+    material = json.dumps(credential_parts, separators=(",", ":")).encode()
+    # HMAC-SHA-256 keeps low-entropy credentials opaque if a cache key leaks.
+    # Typed JSON keeps token and URL credentials distinct; this is only an
+    # in-memory cache partition, not password storage or authentication.
+    # The process-local cache makes a randomly generated key sufficient.
+    token_hash = hmac.new(
+        _AUTH_CACHE_HMAC_KEY,
+        material,
+        hashlib.sha256,
     ).hexdigest()
     return f":auth:{token_hash}"
 

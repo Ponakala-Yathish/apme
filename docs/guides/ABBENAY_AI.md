@@ -8,7 +8,8 @@ Vercel AI SDK.
 
 In the Simple in-pod topology (ADR-070), Abbenay serves HTTP admin
 on `:8787` and gRPC on loopback (`--grpc-host 127.0.0.1 --grpc-port 50057`;
-image ≥ v2026.8.0). Helm has no cluster Service or hostPort. Local Podman
+image ≥ v2026.8.0). The operator exposes no cluster Service or hostPort for
+Abbenay. Local Podman
 (`tox -e up`) publishes HTTP on host port 8787 by default, with `hostIP:
 127.0.0.1`; if 8787 is occupied, `up.sh` selects a free port from 8787–8887
 and prints the authoritative URL. gRPC stays loopback.
@@ -98,8 +99,7 @@ Gateway reverse-proxies the JSON body unchanged and does **not** store keys
 
 | Deploy | Volume | Survives |
 |--------|--------|----------|
-| **Helm (default)** | `emptyDir` | Abbenay **container** restart; lost on **pod** recycle (reschedule, drain, Helm `Recreate` upgrade) |
-| **Helm PVC** | `persistence.abbenay.enabled=true` | Pod recycle / upgrade (PVC may hold plaintext `secrets.json`) |
+| **Operator (when enabled)** | `emptyDir` by default | Abbenay **container** restart; lost on **pod** recycle. Check the operator guide for supported persistence options. |
 | **Podman (Linux)** | RW config `${XDG_CONFIG_HOME:-$HOME/.config}/abbenay/` | `tox -e down` / container restart / `tox -e wipe`; `secrets.json` is preserved. |
 | **Podman (macOS)** | Same hostPath; virtiofs | File store unsupported until [#562](https://github.com/ansible/apme/issues/562). Use env or memory. |
 
@@ -142,7 +142,7 @@ the first write, the runtime file is the source of truth.
 
 | Deploy | Seed | Writable volume | Notes |
 |--------|------|-----------------|-------|
-| **Helm** | ConfigMap `*-abbenay-config` (from `abbenay.providers`) | `emptyDir` by default; optional PVC via `persistence.abbenay.enabled=true` | Init `init-abbenay-config` copies seed only if `config.yaml` is absent. Mount: `/etc/abbenay-config`. The same volume holds file-store `secrets.json` (Abbenay ≥ v2026.8.6). |
+| **Operator** | Operator-managed provider configuration | Writable config volume; persistence options are documented in [apme-operator](https://github.com/ansible/apme-operator) | The same writable volume holds file-store `secrets.json` (Abbenay ≥ v2026.8.6). |
 | **Podman** | `containers/abbenay/config/` (or legacy `config.yaml` / `.example`) on first `tox -e up` | Config dir `${XDG_CONFIG_HOME:-$HOME/.config}/abbenay/` → `/home/abbenay/.config/abbenay` | `up.sh` seeds into the user config path (mode `0700`/`0600`) and migrates the legacy cache path once. Rootful chowns the config copy to UID 1001; rootless Linux keeps host ownership and grants UID 1001 a POSIX ACL. macOS virtiofs cannot grant UID 1001 access to `secrets.json` without world-opening it — file store unsupported until [#562](https://github.com/ansible/apme/issues/562). The repo tree is never chowned. `tox -e wipe` preserves `config.yaml` and `secrets.json`. |
 
 See [ADR-070](../../.sdlc/adrs/ADR-070-gateway-abbenay-admin-proxy.md) §6 (config durability) and §7 (secrets remain Abbenay SoT). For operator PVC and persistence options, see [apme-operator](https://github.com/ansible/apme-operator).
@@ -418,8 +418,9 @@ abbenay:
 
 ## Environment Variables (Vertex AI)
 
-The chart sets these automatically when a `vertex-anthropic` provider uses
-ADC (no `baseUrl` or `apiKey`):
+For a `vertex-anthropic` provider using ADC (no `baseUrl` or `apiKey`),
+configure these environment variables on Abbenay. Kubernetes/OpenShift
+configuration is documented in the operator repository:
 
 | Variable | Source | Purpose |
 |----------|--------|---------|
@@ -457,7 +458,7 @@ https://us-east5-aiplatform.googleapis.com/v1/projects/your-project/locations/us
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `undefined` in Vertex API URL | Missing `gcp.project` or `gcp.location` | Set both in values |
+| `undefined` in Vertex API URL | Missing `gcp.project` or `gcp.location` | Set both in the deployment configuration |
 | `PERMISSION_DENIED` | SA lacks `roles/aiplatform.user` | Grant role to the service account |
 | Pod stuck in `ContainerCreating` | Credentials Secret missing | Create Secret or use workload identity |
 | Engine AI chat fails with token-on-plaintext-TCP | Token sent on plaintext TCP (`abbenay-client` ≥ 2026.8.7) | Use the Unix socket ADDR (operator/Podman default) or TLS |

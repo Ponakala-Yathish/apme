@@ -47,7 +47,7 @@ Full pod inventory (including optional validators and observability): see
 |-----|----------|
 | [ADR-001](/.sdlc/adrs/ADR-001-grpc-communication.md) | gRPC for all inter-service communication |
 | [ADR-003](/.sdlc/adrs/ADR-003-vendor-ari-engine.md) | Vendored ARI engine (NOT a pip dependency) |
-| [ADR-004](/.sdlc/adrs/ADR-004-podman-pod-deployment.md) | Podman pod for **local dev only** (not K8s/OCP) |
+| [ADR-004](/.sdlc/adrs/ADR-004-podman-pod-deployment.md) | Podman pod for local development and single-node non-Kubernetes deployments |
 | [ADR-007](/.sdlc/adrs/ADR-007-async-grpc-servers.md) | Async gRPC (grpc.aio) for all servers |
 | [ADR-008](/.sdlc/adrs/ADR-008-rule-id-conventions.md) | Rule IDs: L=Lint, M=Modernize, R=Risk, P=Policy, SEC=Secrets |
 | [ADR-009](/.sdlc/adrs/ADR-009-remediation-engine.md) | Validators are read-only; remediation is separate |

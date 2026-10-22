@@ -120,4 +120,4 @@ If a shared wheel cache is needed:
 | 2026-08-03 | APME Team | Helm notes amended for ADR-069 Simple (no multi-replica chart path) |
 | 2026-09-02 | APME Team | Kubernetes deployment moved to the external APME Operator; ADR-069 superseded |
 | 2026-09-22 | Agent | Status clarified — Podman pod and Helm Simple enforce scale-as-unit; horizontal multi-replica path not implemented |
-| 2026-09-22 | Agent | Status → Partially Implemented — reference topology shipped; multi-replica scaling and operator deferred |
+| 2026-09-22 | Agent | Status → Partially Implemented — reference topology shipped; multi-replica scaling deferred; operator maintained separately |

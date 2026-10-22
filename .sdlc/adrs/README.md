@@ -55,7 +55,6 @@ Decisions that are fully reflected in the codebase.
 | [ADR-066](ADR-066-ui-workflow-github-release-artifacts.md) | Publish `@apme/ui-workflow` via GitHub Release Artifacts | 2026-07-23 (revised 2026-07-31) |
 | [ADR-067](ADR-067-otel-metrics-in-pod-collector.md) | OpenTelemetry Metrics with In-Pod Collector | 2026-07-29 |
 | [ADR-068](ADR-068-adaptive-operation-deadlines.md) | Adaptive Operation Deadlines for Long AI Remediation | 2026-07-30 |
-| [ADR-069](ADR-069-helm-simple-all-in-one.md) | Helm Chart Simple All-in-One Topology (EAP / Upstream) | 2026-08-03 |
 | [ADR-070](ADR-070-gateway-abbenay-admin-proxy.md) | Gateway HTTP Proxy to In-Pod Abbenay Admin (Simple Model) | 2026-08-03 |
 
 ## Partially Implemented
@@ -64,7 +63,7 @@ Decisions with substantial code shipped; ADR-defined scope still incomplete.
 
 | ADR | Title | Date |
 |-----|-------|------|
-| [ADR-012](ADR-012-scale-pods-not-services.md) | Scale Pods, Not Services Within a Pod (Partially Implemented (multi-replica scaling and operator deferred)) | 2026-02 |
+| [ADR-012](ADR-012-scale-pods-not-services.md) | Scale Pods, Not Services Within a Pod (Partially Implemented (multi-replica scaling deferred; Kubernetes deployment is maintained by the operator)) | 2026-02 |
 | [ADR-038](ADR-038-public-data-api.md) | Public Data API for Platform Consumers (Partially Implemented (webhooks, token auth, project health endpoint, and collection-route project lookup pending)) | 2026-03-25 |
 | [ADR-040](ADR-040-scan-metadata-enrichment.md) | Scan Metadata Enrichment (Partially Implemented (global collection and Python-package catalog endpoints and collection-to-project routes pending)) | 2026-03-25 |
 | [ADR-043](ADR-043-default-severity-assignment.md) | Default Severity Assignment for Rule Catalog (Partially Implemented (Phase 5 service_affecting and R2xx rules pending)) | 2026-03-26 |
@@ -73,7 +72,7 @@ Decisions with substantial code shipped; ADR-defined scope still incomplete.
 | [ADR-051](ADR-051-dependency-health-scanning.md) | Dependency Health Scanning (Partially Implemented (M004 collection rules and `--rescan-deps` CLI flag pending)) | 2026-04-07 |
 | [ADR-052](ADR-052-project-operation-sse-architecture.md) | Project Operation SSE Architecture (Partially Implemented (legacy WebSocket removal pending)) | 2026-04-14 |
 | [ADR-053](ADR-053-github-integration-strategy.md) | GitHub Integration Strategy (Partially Implemented (`@v1` publish pending)) | 2026-04-10 |
-| [ADR-054](ADR-054-production-deployment.md) | Production Deployment — Helm Chart and bootc VM Image (Partially Implemented (ExternalSecret integration pending)) | 2026-04-10 |
+| [ADR-054](ADR-054-production-deployment.md) | Production Deployment — Kubernetes Operator and bootc VM Image (Partially Implemented (bootc shipped; Kubernetes deployment maintained in apme-operator; ExternalSecret support pending)) | 2026-04-10 |
 | [ADR-055](ADR-055-violation-fingerprint-suppression.md) | Content-Based Violation Fingerprinting and Suppression (Partially Implemented (rule_module mode and export/import remain)) | 2026-05-21 |
 | [ADR-056](ADR-056-apme-owns-scm-commit-push.md) | APME Owns SCM Commit and Push (Partially Implemented (fixed APME commit author and committer identity pending)) | 2026-07-06 |
 | [ADR-057](ADR-057-per-rule-version-applicability.md) | Per-Rule Ansible-Core Version Applicability (Partially Implemented (Gateway rule-catalog persistence and REST exposure pending)) | 2026-07-07 |

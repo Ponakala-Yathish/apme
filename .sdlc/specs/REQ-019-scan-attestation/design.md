@@ -59,9 +59,12 @@ on Gateway only (engine containers never mount signing keys):
   `gateway` container (for example host `/path/to/signing-key.pem` →
   `/etc/apme/secrets/signing-key.pem` with `:ro` or `readOnly: true`) and set
   `APME_SIGNING_KEY` to that in-container path.
-- **bootc VM:** place the PEM under `/etc/apme/secrets/` (or another host path
-  mounted read-only into `apme-gateway`), set `APME_SIGNING_KEY` in
-  `/etc/apme/env/apme.env`, and restart the Gateway quadlet.
+- **bootc VM:** keyed signing is not available in the current quadlets. Before
+  setting `APME_SIGNING_KEY`, implementation must add a read-only mount to
+  `apme-gateway.container` (for example,
+  `Volume=/etc/apme/secrets:/etc/apme/secrets:ro`), then set the variable in
+  `/etc/apme/env/apme.env` to the mounted in-container path and restart the
+  Gateway quadlet.
 
 Verification when `APME_SIGSTORE_OFFLINE=true`:
 - **Keyed attestations**: verify signature against the configured trust-set public keys only; Rekor checks are skipped.
@@ -83,17 +86,9 @@ mounted read-only into the Gateway container (e.g.,
 
 **Podman and bootc:** provision the same `APME_SIGNING_KEY` path grammar on
 Gateway via a **read-only** host bind-mount (Podman `pod.yaml` gateway volume
-with `:ro` / `readOnly: true`) or bootc `/etc/apme/env/apme.env` plus a
-read-only quadlet volume — see Offline / air-gapped mode above.
-
-For bootc deployments, keyed signing is a design requirement and is not
-available in the current quadlets. Before setting `APME_SIGNING_KEY`, the
-implementation must add a read-only host-directory mount to
-`apme-gateway.container` (for example,
-`Volume=/etc/apme/secrets:/etc/apme/secrets:ro`) and configure the variable to
-the mounted in-container path. Never mount the signing key into engine
-containers. The Gateway must fail clearly if the configured key path is not
-readable.
+with `:ro` / `readOnly: true`) or the required bootc quadlet mount described
+above. Never mount signing keys into engine containers. Gateway must fail
+clearly if the configured key path is not readable.
 
 Each keyed signer has a stable **key ID** (`keyid` in the envelope) derived from the public key fingerprint (see contract wire-format section for exact algorithm). Gateway persists the public key material in a verifier **trust set** keyed by `keyid`.
 

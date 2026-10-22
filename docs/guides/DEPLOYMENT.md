@@ -102,7 +102,7 @@ The start script (`up.sh`) automatically mounts the bundle into the `abbenay`, `
 tox -e up
 ```
 
-This runs `podman play kube containers/podman/pod.yaml`, which starts the pod `apme-pod` with twelve service containers (Engine, Native, OPA, Ansible, Gitleaks, Collection Health, Dep Audit, Galaxy Proxy, Gateway, UI, Abbenay, OTel Collector). The `up.sh` script sources `containers/abbenay/.env` to inject LLM API keys into the Abbenay container. A sessions directory is created for session-scoped venvs.
+This runs `podman play kube containers/podman/pod.yaml`, which starts the pod `apme-pod` with thirteen service containers (Engine, Native, OPA, Ansible, Gitleaks, Collection Health, Dep Audit, Galaxy Proxy, PostgreSQL, Gateway, UI, Abbenay, OTel Collector). The `up.sh` script sources `containers/abbenay/.env` to inject LLM API keys into the Abbenay container. A sessions directory is created for session-scoped venvs.
 
 ### Run CLI commands
 
@@ -201,8 +201,8 @@ proxy gRPC requests to it.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `APME_GALAXY_PROXY_URL` | `http://127.0.0.1:8765` | Galaxy proxy base URL |
-| `APME_PROXY_ADMIN_TOKEN` | chart-managed secret | Shared token used by Engine to request collection preparation and by Gateway to sync Hub configuration |
-| `APME_PROXY_REQUIRE_GATEWAY_CONFIG` | `1` in Helm/Podman/bootc pods | Wait for authenticated Gateway configuration before collection access, including when the cache is empty or unavailable. Standalone CLI proxies omit this setting. |
+| `APME_PROXY_ADMIN_TOKEN` | Deployment-managed secret | Shared token used by Engine to request collection preparation and by Gateway to sync Hub configuration |
+| `APME_PROXY_REQUIRE_GATEWAY_CONFIG` | `1` in managed pods | Wait for authenticated Gateway configuration before collection access, including when the cache is empty or unavailable. Standalone CLI proxies omit this setting. |
 | `LOG_LEVEL` | `INFO` | Galaxy Proxy logging level: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Invalid values fail startup. |
 
 At `INFO` level, Galaxy Proxy logs collection requests, wheel cache
@@ -237,34 +237,20 @@ the returned tarballs to wheels, and serves them from the cache. No remote
 version catalog is fetched. Configured Hub failures do not trigger an implicit
 public Galaxy fallback.
 
-The engine, Gateway, and proxy share `APME_PROXY_ADMIN_TOKEN`; Helm injects the
-same secret into each container. Downloads verify TLS certificates by default.
+The engine, Gateway, and proxy share `APME_PROXY_ADMIN_TOKEN`; deployment
+configuration injects the same secret into each container. Downloads verify TLS certificates by default.
 Galaxy server creation/update accepts `validate_certs: true`, `false`, or
 `null` (inherit the deployment default). Gateway persists and forwards this
 setting to the proxy and scan metadata. Explicit per-server policy takes
 precedence over the deployment default. Portal should forward its connected
 Hub's `ansible.rhaap.checkSSL` setting.
 
-For verified Helm connections to a private Hub, supply a ConfigMap containing
-the Hub's PEM CA certificate. The proxy's init container combines it with the
-image's system roots:
-
-```yaml
-engine:
-  galaxyProxy:
-    tls:
-      verify: true
-      caBundleConfigMapRef:
-        name: private-hub-ca
-        key: ca-bundle.crt
-```
-
-Restart the deployment after changing the referenced CA ConfigMap so the init
-container rebuilds its trust bundle. For an explicit lab opt-out, set
-`engine.galaxyProxy.tls.verify: false`, or `validate_certs: false` on the
-individual Hub. The existing `engine.galaxyProxy.extraEnv` escape hatch remains
-supported; do not specify `ANSIBLE_GALAXY_IGNORE` there together with
-`tls.verify`. TLS defaults affect only servers without a per-server override.
+For a private Hub, configure the platform's CA trust bundle for the Galaxy
+Proxy. On Podman, `up.sh` mounts the configured CA bundle into the proxy and
+sets its trust environment; for Kubernetes/OpenShift, follow the operator
+repository's current configuration guidance. An explicit lab opt-out can use
+`validate_certs: false` on an individual Hub. TLS defaults affect only servers
+without a per-server override.
 
 Collection installation repositories must include every required collection
 and its dependencies. Catalog synchronization repositories may cover only a
@@ -539,8 +525,8 @@ See the operator repository for installation prerequisites, CRD definitions,
 and example manifests:
 
 - Repository: [https://github.com/ansible/apme-operator](https://github.com/ansible/apme-operator)
-- Install the operator (OLM or manual — follow the operator README)
-- Create an `APME` (or equivalent) custom resource with your desired configuration
+- Install the operator using its published release or source instructions
+- Create an `Apme` custom resource with your desired configuration
 
 For Abbenay AI provider setup, secrets, and troubleshooting on Kubernetes, see
 [ABBENAY_AI.md](ABBENAY_AI.md) (Podman/operator sections) and the operator

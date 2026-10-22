@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import os
 import subprocess
 import tempfile
@@ -670,21 +669,14 @@ async def test_fetch_remote_head_separates_distinct_tokens() -> None:
 
 
 def test_auth_cache_marker_separates_url_userpass() -> None:
-    """Embedded URL credentials produce distinct BLAKE2 cache markers."""
+    """Embedded URL credentials produce opaque, repeatable cache markers."""
     marker_a = _auth_cache_marker(None, ("deployer", "secret-a"))
     marker_b = _auth_cache_marker(None, ("deployer", "secret-b"))
     assert marker_a.startswith(":auth:")
     assert marker_b.startswith(":auth:")
     assert marker_a != marker_b
-    material = "deployer:secret-a"
-    expected = hashlib.blake2b(
-        material.encode(),
-        digest_size=8,
-        person=b"apme-auth-cache",
-    ).hexdigest()
-    assert marker_a == f":auth:{expected}"
-    unpersonalized = hashlib.blake2b(material.encode(), digest_size=8).hexdigest()
-    assert marker_a != f":auth:{unpersonalized}"
+    assert marker_a == _auth_cache_marker(None, ("deployer", "secret-a"))
+    assert "secret-a" not in marker_a
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]

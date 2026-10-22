@@ -360,7 +360,10 @@ def test_prepare_collections_requires_admin_auth(tmp_path: Path, monkeypatch: py
     assert response.status_code == 403
 
 
-@pytest.mark.parametrize("bad_spec", ["--help", "ansible.posix;echo", "missing-dot", "ansible.posix:>=1, <2"])  # type: ignore[untyped-decorator]
+@pytest.mark.parametrize(
+    "bad_spec",
+    ["--help", "ansible.posix;echo", "missing-dot", "ansible.posix:>=1, <2", "ansible.posix:" + "0" * 256],
+)  # type: ignore[untyped-decorator]
 def test_prepare_collections_rejects_unsafe_specs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bad_spec: str
 ) -> None:

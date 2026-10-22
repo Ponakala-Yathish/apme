@@ -266,6 +266,8 @@ def _enrich_violations_from_graph(
         graph: ContentGraph after convergence.
         fixed: When ``True``, also populate ``fixed_yaml`` and ``co_fixes``.
     """
+    from apme_engine.remediation.proposal_yaml import normalize_proposal_yaml  # noqa: PLC0415
+
     for v in violations:
         node_id = str(v.get("path", ""))
         if not node_id:
@@ -278,7 +280,7 @@ def _enrich_violations_from_graph(
         if not node.progression:
             continue
 
-        v["original_yaml"] = node.progression[0].yaml_lines
+        v["original_yaml"] = normalize_proposal_yaml(node.progression[0].yaml_lines)
         v["node_line_start"] = node.line_start
 
         if not fixed:
@@ -288,7 +290,7 @@ def _enrich_violations_from_graph(
             (s for s in reversed(node.progression) if s.approved),
             node.progression[-1],
         )
-        v["fixed_yaml"] = approved.yaml_lines
+        v["fixed_yaml"] = normalize_proposal_yaml(approved.yaml_lines)
 
         this_rule = str(v.get("rule_id", ""))
         co_fixes = sorted(
@@ -312,6 +314,7 @@ def _collect_ai_triage_candidates(session: SessionState) -> list[ViolationDict]:
     """
     from apme_engine.graph.content_graph import ContentGraph  # noqa: PLC0415
     from apme_engine.remediation.partition import add_classification_to_violations  # noqa: PLC0415
+    from apme_engine.remediation.proposal_yaml import normalize_proposal_yaml  # noqa: PLC0415
 
     graph = session.content_graph
     if not isinstance(graph, ContentGraph):
@@ -329,7 +332,7 @@ def _collect_ai_triage_candidates(session: SessionState) -> list[ViolationDict]:
         # Overwrite scan-baseline snippet with live post–Quick-fix YAML.
         node = graph.get_node(path)
         if node is not None and node.yaml_lines:
-            v["original_yaml"] = node.yaml_lines
+            v["original_yaml"] = normalize_proposal_yaml(node.yaml_lines)
             v["node_line_start"] = node.line_start
         out.append(v)
     return out
@@ -2944,6 +2947,38 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
         return provider
 
     @staticmethod
+    def _normalized_proposal_yaml_pair(
+        before_yaml: str,
+        after_yaml: str,
+        fromfile: str,
+        tofile: str,
+    ) -> tuple[str, str, str]:
+        """Normalize proposal YAML and build a unified diff from the result.
+
+        Args:
+            before_yaml: Original YAML text.
+            after_yaml: Proposed YAML text.
+            fromfile: Label for the diff "from" side.
+            tofile: Label for the diff "to" side.
+
+        Returns:
+            Tuple of normalized before text, normalized after text, and unified diff.
+        """
+        from apme_engine.remediation.proposal_yaml import normalize_proposal_yaml
+
+        before = normalize_proposal_yaml(before_yaml)
+        after = normalize_proposal_yaml(after_yaml)
+        diff_hunk = "".join(
+            difflib.unified_diff(
+                before.splitlines(keepends=True),
+                after.splitlines(keepends=True),
+                fromfile=fromfile,
+                tofile=tofile,
+            )
+        )
+        return before, after, diff_hunk
+
+    @staticmethod
     def _build_tier1_proposals(
         tier1_node_proposals: Sequence[object],
     ) -> list[Proposal]:
@@ -2962,13 +2997,11 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
             tnp: Tier1NodeProposal = item  # type: ignore[assignment]
             rule_id = ",".join(tnp.rule_ids) if tnp.rule_ids else "deterministic"
 
-            diff_hunk = "".join(
-                difflib.unified_diff(
-                    tnp.before_yaml.splitlines(keepends=True),
-                    tnp.after_yaml.splitlines(keepends=True),
-                    fromfile=f"a/{tnp.file_path}",
-                    tofile=f"b/{tnp.file_path} (Tier 1)",
-                )
+            before_text, after_text, diff_hunk = EngineServicer._normalized_proposal_yaml_pair(
+                tnp.before_yaml,
+                tnp.after_yaml,
+                fromfile=f"a/{tnp.file_path}",
+                tofile=f"b/{tnp.file_path} (Tier 1)",
             )
 
             summaries = getattr(tnp, "violation_summaries", None) or []
@@ -2980,8 +3013,8 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
                     rule_id=rule_id,
                     line_start=tnp.line_start,
                     line_end=tnp.line_end,
-                    before_text=tnp.before_yaml,
-                    after_text=tnp.after_yaml,
+                    before_text=before_text,
+                    after_text=after_text,
                     diff_hunk=diff_hunk,
                     confidence=1.0,
                     explanation=explanation,
@@ -3013,13 +3046,11 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
             anp: AINodeProposal = item  # type: ignore[assignment]
             rule_id = ",".join(anp.rule_ids) if anp.rule_ids else "ai-fix"
 
-            diff_hunk = "".join(
-                difflib.unified_diff(
-                    anp.before_yaml.splitlines(keepends=True),
-                    anp.after_yaml.splitlines(keepends=True),
-                    fromfile=f"a/{anp.file_path}",
-                    tofile=f"b/{anp.file_path} (AI proposed)",
-                )
+            before_text, after_text, diff_hunk = EngineServicer._normalized_proposal_yaml_pair(
+                anp.before_yaml,
+                anp.after_yaml,
+                fromfile=f"a/{anp.file_path}",
+                tofile=f"b/{anp.file_path} (AI proposed)",
             )
 
             proposals.append(
@@ -3029,8 +3060,8 @@ class EngineServicer(engine_pb2_grpc.EngineServicer):
                     rule_id=rule_id,
                     line_start=anp.line_start,
                     line_end=anp.line_end,
-                    before_text=anp.before_yaml,
-                    after_text=anp.after_yaml,
+                    before_text=before_text,
+                    after_text=after_text,
                     diff_hunk=diff_hunk,
                     confidence=anp.confidence,
                     explanation=anp.explanation,

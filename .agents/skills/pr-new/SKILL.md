@@ -227,6 +227,12 @@ artifact type, translate it:
    — "empty" must mean the same thing on both sides. After the
    emptiness check uses ``trim_space``, tokenize/split on that
    string with the same whitespace class, not ``split(trim(x, " "), " ")``.
+   When a scanner skips escaped characters inside quoted strings,
+   verify that escaping follows the active quote style. Construct each
+   supported quote style with a backslash immediately before its closing
+   delimiter and structural text afterward; the scanner must close the
+   scalar and continue parsing that structure. YAML single-quoted scalars
+   treat backslashes literally, while doubled single quotes encode an apostrophe.
    Also construct _temporal_ failures: what happens when an async
    dependency never responds, times out, or responds after the
    consumer has moved on? For React effects that rerun when a provider,

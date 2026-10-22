@@ -10,7 +10,7 @@ USER root
 # ansible-galaxy collection download is used for tarball fetching (ADR-045).
 # Install ansible-core into the image venv so the binary is on PATH.
 RUN --mount=type=cache,target=/tmp/uv-cache \
-    uv pip install --python /app/.venv/bin/python "ansible-core>=2.16,<2.19"
+    uv pip install --python /app/.venv/bin/python "ansible-core>=2.21.2,<2.22"
 
 USER 1001
 

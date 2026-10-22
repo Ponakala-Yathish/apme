@@ -19,9 +19,9 @@
     "@apme/ui-workflow": "workspace:*",
     "@patternfly/patternfly": "6.6.1",
     "@patternfly/react-charts": "8.6.1",
-    "@patternfly/react-core": "6.6.1",
+    "@patternfly/react-core": "6.6.2",
     "@patternfly/react-icons": "6.6.1",
-    "@patternfly/react-table": "6.6.1",
+    "@patternfly/react-table": "6.6.2",
     "@react-hook/resize-observer": "^2.0.2",
     "d3": "^7.9.0",
     "dagre": "^0.8.5",
@@ -55,22 +55,22 @@
     "fast-deep-equal": "^3.1.3",
     "get-value": "^4.1.0",
     "js-yaml": "^5.4.1",
-    "jsdom": "^30.0.1",
+    "jsdom": "^30.1.1",
     "luxon": "^3.7.2",
     "p-limit": "^7.3.2",
     "react-hook-form": "^7.86.0",
     "type-fest": "^5.9.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.2",
-    "vitest": "5.0.0",
+    "vitest": "5.0.1",
     "zustand": "^5.0.15"
   },
   "overrides": {
     "undici": "8.10.2",
     "@babel/core": ">=7.29.6",
     "postcss": "8.5.23",
-    "vitest": "5.0.0",
-    "@vitest/mocker": "5.0.0"
+    "vitest": "5.0.1",
+    "@vitest/mocker": "5.0.1"
   },
   "workspaces": [
     "packages/*"

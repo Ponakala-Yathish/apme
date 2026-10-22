@@ -668,6 +668,44 @@ async def test_fetch_remote_head_separates_distinct_tokens() -> None:
         assert mock_run.call_count == 2
 
 
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_separates_url_credentials_in_caches() -> None:
+    """Different URL credentials get separate positive and negative cache entries."""
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    with (
+        patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
+        patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+    ):
+        mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout=f"{'a' * 40}\trefs/heads/main\n"),
+            MagicMock(returncode=0, stdout=f"{'b' * 40}\trefs/heads/main\n"),
+            MagicMock(returncode=1, stdout=""),
+            MagicMock(returncode=0, stdout=f"{'d' * 40}\trefs/heads/main\n"),
+        ]
+
+        url_a = "https://deployer:secret-a@github.com/o/r.git"
+        assert await fetch_remote_head(url_a, "main") == "a" * 40
+        assert await fetch_remote_head(url_a, "main") == "a" * 40
+        assert mock_run.call_count == 1
+
+        url_b = "https://deployer:secret-b@github.com/o/r.git"
+        assert await fetch_remote_head(url_b, "main") == "b" * 40
+        assert await fetch_remote_head(url_b, "main") == "b" * 40
+        assert mock_run.call_count == 2
+
+        url_c = "https://deployer:secret-c@github.com/o/r.git"
+        assert await fetch_remote_head(url_c, "main") is None
+        assert await fetch_remote_head(url_c, "main") is None
+        assert mock_run.call_count == 3
+
+        url_d = "https://deployer:secret-d@github.com/o/r.git"
+        assert await fetch_remote_head(url_d, "main") == "d" * 40
+        assert await fetch_remote_head(url_d, "main") == "d" * 40
+        assert mock_run.call_count == 4
+
+
 def test_auth_cache_marker_separates_url_userpass() -> None:
     """Credential source and values produce opaque, distinct cache markers."""
     marker_a = _auth_cache_marker(None, ("deployer", "secret-a"))

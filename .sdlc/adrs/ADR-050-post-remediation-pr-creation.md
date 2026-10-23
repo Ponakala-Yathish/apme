@@ -97,9 +97,10 @@ global:
 | **Project** | `scm_token` field on the Project record | Overrides global for this project |
 | **Global** | `APME_SCM_TOKEN` environment variable | Default for all projects without a project-level token |
 
-Token resolution: if the project has `scm_token` set, use it. Otherwise, fall
-back to `APME_SCM_TOKEN`. If neither is set, the "Create PR" action is
-unavailable (UI disables the button, API returns 422).
+Token resolution uses the first nonblank value in inline → project → global
+order. Empty and whitespace-only values are treated as unset. If no usable
+token is configured, the "Create PR" action is unavailable (UI disables the
+button, API returns 422).
 
 Tokens are stored in the database as plaintext today (project-level) or read
 from the environment (global). Encryption at rest is planned via `APME_SECRET_KEY`
@@ -425,3 +426,4 @@ globally via `APME_GITHUB_API_URL`.
 | 2026-08-31 | AI Agent | Persist `branch_name` and `commit_sha` on the scan row; return them with `pr_url` on activity list/detail |
 | 2026-09-22 | Agent | Status clarified — `/operation/submit` with `create_pr` and GitHub/GitLab/Bitbucket providers shipped; `APME_SECRET_KEY` encryption deferred |
 | 2026-09-22 | Agent | Status → Partially Implemented — PR creation and multi-provider SCM shipped |
+| 2026-10-23 | Agent | Treat empty and whitespace-only inline, project, and global SCM tokens as unset during fallback selection |

@@ -28,6 +28,7 @@ from apme_gateway.scan.driver import (
     run_project_scan,
 )
 from apme_gateway.scm.redaction import redact_credentials
+from apme_gateway.scm.tokens import select_usable_scm_token
 
 
 def _decode_auth_env(env: dict[str, str]) -> str:
@@ -48,6 +49,28 @@ def _decode_auth_env(env: dict[str, str]) -> str:
     scheme, _, encoded = value.partition("Basic ")
     assert scheme.strip().rstrip(":").upper() == "AUTHORIZATION"
     return base64.b64decode(encoded.strip()).decode("utf-8")
+
+
+@pytest.mark.parametrize(  # type: ignore[untyped-decorator]
+    ("tokens", "expected"),
+    [
+        ((None, "global"), "global"),
+        (("", "global"), "global"),
+        ((" \t", "global"), "global"),
+        (("project", "global"), "project"),
+        ((" \t", "\n"), None),
+    ],
+)
+def test_select_usable_scm_token_uses_first_nonblank_candidate(
+    tokens: tuple[str | None, ...], expected: str | None
+) -> None:
+    """Skip blank higher-priority tokens and keep the first usable value.
+
+    Args:
+        tokens: SCM credentials in precedence order.
+        expected: First usable credential or ``None``.
+    """
+    assert select_usable_scm_token(*tokens) == expected
 
 
 @pytest.mark.parametrize(  # type: ignore[untyped-decorator]

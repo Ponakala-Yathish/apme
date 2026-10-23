@@ -44,6 +44,7 @@ from apme_gateway.scan.operator_queue import (
 )
 from apme_gateway.scm.redaction import redact_credentials as _redact_credentials
 from apme_gateway.scm.repo_url import normalize_repo_url
+from apme_gateway.scm.tokens import usable_scm_token
 
 logger = logging.getLogger(__name__)
 
@@ -250,19 +251,6 @@ def _url_embedded_userpass(repo_url: str) -> tuple[str, str] | None:
     return user, password
 
 
-def _usable_scm_token(scm_token: str | None) -> str | None:
-    """Treat whitespace-only SCM credentials as absent.
-
-    Args:
-        scm_token: SCM token provided by a project or caller.
-
-    Returns:
-        The original token when it contains non-whitespace characters,
-        otherwise ``None``.
-    """
-    return scm_token if scm_token is not None and scm_token.strip() else None
-
-
 def _auth_cache_marker(scm_token: str | None, url_userpass: tuple[str, str] | None) -> str:
     """Build a stable cache marker for credential-aware SCM lookups.
 
@@ -273,7 +261,7 @@ def _auth_cache_marker(scm_token: str | None, url_userpass: tuple[str, str] | No
     Returns:
         Empty string when unauthenticated, otherwise ``:auth:<hash>``.
     """
-    scm_token = _usable_scm_token(scm_token)
+    scm_token = usable_scm_token(scm_token)
     if scm_token:
         credential_parts = ["scm-token", scm_token]
     elif url_userpass is not None:
@@ -313,7 +301,7 @@ def _apply_git_auth_env(
     Returns:
         Environment with auth headers merged, unchanged when no token.
     """
-    scm_token = _usable_scm_token(scm_token)
+    scm_token = usable_scm_token(scm_token)
     if scm_token:
         auth = _git_auth_env(repo_url, scm_token, scm_provider=scm_provider)
     elif url_userpass is not None:
@@ -534,7 +522,7 @@ async def fetch_remote_head(
     Returns:
         40-char hex SHA, or ``None`` if the lookup fails.
     """
-    scm_token = _usable_scm_token(scm_token)
+    scm_token = usable_scm_token(scm_token)
     url_userpass = _url_embedded_userpass(repo_url) if not scm_token else None
     repo_url = _strip_url_userinfo(repo_url)
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):
@@ -656,7 +644,7 @@ async def clone_repo(
             not a valid git ref name.
         RuntimeError: If ``git clone`` fails or times out.
     """
-    scm_token = _usable_scm_token(scm_token)
+    scm_token = usable_scm_token(scm_token)
     url_userpass = _url_embedded_userpass(repo_url) if not scm_token else None
     repo_url = _strip_url_userinfo(repo_url)
     if not any(repo_url.startswith(scheme) for scheme in _ALLOWED_SCHEMES):

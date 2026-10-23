@@ -284,10 +284,21 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    mismatched, use `gh pr checkout N` and verify the checkout before continuing:
 
    ```bash
-   gh pr view N --json baseRefName,headRefName,headRepository,url
+   gh pr view N --json baseRefName,headRefName,headRepository,headRefOid,url
    git remote -v
    git branch --show-current
    git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'
+   ```
+
+   Before editing review feedback, capture the current `headRefOid` as the
+   expected remote value for the later lease check. Keep that snapshot
+   unchanged while making fixes; on a later feedback cycle, capture the new
+   head again before editing.
+
+   ```bash
+   pr_number=N
+   expected_head=$(gh pr view "$pr_number" --json headRefOid --jq .headRefOid) || exit 1
+   git config --local pr-address-feedback.expectedHead "$expected_head"
    ```
 
    Before fetching, confirm that the base remote's fetch URL matches the
@@ -341,6 +352,7 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    ```bash
    pr_number=N
    pr_branch=$(gh pr view "$pr_number" --json headRefName --jq .headRefName) || exit 1
+   expected_head=$(git config --local --get pr-address-feedback.expectedHead) || exit 1
    pr_remote='verified-pr-remote-name'
    git check-ref-format --branch "$pr_branch" >/dev/null || {
      echo "Invalid PR branch metadata; refusing to push." >&2
@@ -348,6 +360,16 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    }
    git remote | grep -Fxq -- "$pr_remote" || {
      echo "PR remote is not configured; refusing to push." >&2
+     exit 1
+   }
+   case "$expected_head" in
+     *[!0-9a-fA-F]*|'')
+       echo "Invalid PR head commit metadata; refusing to push." >&2
+       exit 1
+       ;;
+   esac
+   test "${#expected_head}" -eq 40 || {
+     echo "Unexpected PR head commit length; refusing to push." >&2
      exit 1
    }
    test "$(git branch --show-current)" = "$pr_branch" || {
@@ -358,7 +380,9 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
      echo "PR branch tracking does not match; refusing to push." >&2
      exit 1
    }
-   git push --force-with-lease "$pr_remote" "HEAD:$pr_branch"
+   git push --force-with-lease="refs/heads/$pr_branch:$expected_head" \
+     "$pr_remote" "HEAD:refs/heads/$pr_branch" &&
+     git config --local --unset pr-address-feedback.expectedHead
    ```
 
    Stop without pushing if either check fails or `HEAD` is detached.

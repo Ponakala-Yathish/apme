@@ -273,27 +273,36 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    clean. Preserve any existing work by committing or safely stashing it; never
    discard it to make the rebase possible. Always fetch the latest PR base and
    attempt to rebase the PR branch onto it, even when it appears up to date.
-   Record the PR's base branch, head repository, and head branch from its
-   metadata, and map the head repository to its configured Git remote. Use
-   these recorded values for the rebase and push steps; do not assume the head
-   remote is named `origin`:
+   Record the PR's base branch, head repository, head branch, and URL from its
+   metadata. Map the base and head repositories to configured Git remotes by
+   checking their fetch and push URLs; do not assume the remotes are named
+   `upstream` or `origin`. The PR URL identifies the base repository. Normalize
+   SSH and HTTPS URLs and an optional `.git` suffix when comparing repository
+   names. Verify that the checked-out local branch is the PR head branch and
+   tracks the recorded head remote and branch. If detached or mismatched, use
+   `gh pr checkout N` and verify the checkout before continuing:
 
    ```bash
-   gh pr view N --json baseRefName,headRefName,headRepository
+   gh pr view N --json baseRefName,headRefName,headRepository,url
    git remote -v
+   git branch --show-current
+   git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'
    ```
 
-   The base is usually `upstream/main`:
+   Before fetching, confirm that the base remote's fetch URL matches the
+   repository identified by the PR URL. Confirm that the PR head remote's push
+   URL matches `headRepository.nameWithOwner`. Fetch and rebase the recorded
+   base branch from the verified base remote. The base is usually `upstream/main`:
 
    ```bash
    git fetch upstream
    git rebase upstream/main
    ```
 
-   If the PR targets another branch, fetch and rebase onto that branch instead.
-   If `upstream` is unavailable, use the canonical repository remote for the
-   PR's base. If no current base can be fetched, report that the rebase could
-   not be attempted before proceeding.
+   If the PR targets another branch or uses a differently named base remote,
+   fetch and rebase onto the recorded `<base-remote>/<base-branch>`. If no
+   remote URL matches the PR base repository or no current base can be fetched,
+   report that the rebase could not be attempted before proceeding.
 
    Resolve every rebase conflict before starting review changes. Inspect each
    conflicted file and preserve both the latest base-branch changes and the
@@ -311,8 +320,8 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    conflicts by blindly choosing one side. If a conflict cannot be resolved
    safely, abort the rebase, preserve the branch, and report the conflict
    before making review changes. Once the rebase completes, verify the branch
-   and diff, then restore any safely stashed work and resolve any resulting
-   conflicts before continuing.
+   is still the recorded PR head branch and inspect the diff, then restore any
+   safely stashed work and resolve any resulting conflicts before continuing.
 
 2. **Review & Plan:** Check CI status and read all review comments. **Write out a brief Action Plan** detailing which files you will edit to fix the comments.
 
@@ -322,8 +331,18 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    explicit refspec so Git's push configuration cannot select other branches:
 
    ```bash
+   test "$(git branch --show-current)" = "<pr-branch>" || {
+     echo "Not on the verified PR branch; refusing to push." >&2
+     exit 1
+   }
+   test "$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')" = "<pr-remote>/<pr-branch>" || {
+     echo "PR branch tracking does not match; refusing to push." >&2
+     exit 1
+   }
    git push --force-with-lease <pr-remote> HEAD:<pr-branch>
    ```
+
+   Stop without pushing if either check fails or `HEAD` is detached.
 
 5. **Wait & Verify Remote CI:** Wait 2-3 minutes for remote CI pipelines to run, then check their status. Some tests only run remotely; fix any remote-only failures before proceeding.
 

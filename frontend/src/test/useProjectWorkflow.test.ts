@@ -105,6 +105,22 @@ describe('resolveAiModel', () => {
     await expect(resolveAiModel(api, () => 'model-b')).resolves.toBe('model-b');
   });
 
+  it('passes the selected browser-storage model to the operation request', async () => {
+    localStorage.setItem('apme-ai-model', 'model-b');
+    vi.mocked(listAiModels).mockResolvedValue([
+      { id: 'model-a', provider: 'provider', name: 'Model A' },
+      { id: 'model-b', provider: 'provider', name: 'Model B' },
+    ]);
+    const { result } = renderWorkflow();
+
+    await act(async () => result.current.startScan());
+
+    expect(workflowMocks.start).toHaveBeenCalledWith(
+      'check',
+      expect.objectContaining({ ai_model: 'model-b' }),
+    );
+  });
+
   it('replaces a stored model that is missing from the current catalog', async () => {
     localStorage.setItem('apme-ai-model', 'removed-model');
     vi.mocked(listAiModels).mockResolvedValue([

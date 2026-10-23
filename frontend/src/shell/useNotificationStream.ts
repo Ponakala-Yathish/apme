@@ -5,8 +5,8 @@
  *
  * To avoid a gap between the initial REST load and SSE subscription, the
  * EventSource opens first and buffers incoming events.  After the REST
- * response arrives, buffered items are merged (id-based dedupe) so no
- * notification is lost.
+ * response arrives, buffered items are merged by ID so updates replace stale
+ * payloads without adding duplicate drawer entries.
  */
 
 import { useEffect, useRef } from 'react';
@@ -39,6 +39,21 @@ function toPageNotification(n: NotificationItem): IPageNotification {
   };
 }
 
+function upsertNotification<T extends { id: string | number }>(
+  notifications: T[],
+  incoming: T,
+): void {
+  const id = String(incoming.id);
+  const existingIndex = notifications.findIndex(
+    (notification) => String(notification.id) === id,
+  );
+  if (existingIndex < 0) {
+    notifications.unshift(incoming);
+  } else {
+    notifications.splice(existingIndex, 1, incoming);
+  }
+}
+
 function buildGroups(items: NotificationItem[]): Record<string, IPageNotificationGroup> {
   const groups: Record<string, IPageNotificationGroup> = {};
   for (const item of items) {
@@ -61,10 +76,7 @@ function mergeNotification(
     ? { ...next[key], notifications: [...next[key].notifications] }
     : { title: key, notifications: [] };
 
-  const strId = String(item.id);
-  if (!group.notifications.some((n) => n.id === strId)) {
-    group.notifications.unshift(toPageNotification(item));
-  }
+  upsertNotification(group.notifications, toPageNotification(item));
   next[key] = group;
   return next;
 }
@@ -155,9 +167,7 @@ export function useNotificationStream(): void {
         const merged = [...resp.items];
         const pending = buffer.splice(0);
         for (const buffered of pending) {
-          if (!restIds.has(buffered.id)) {
-            merged.unshift(buffered);
-          }
+          upsertNotification(merged, buffered);
         }
 
         // Set the initial groups first, then flip restLoaded so any SSE
@@ -170,9 +180,7 @@ export function useNotificationStream(): void {
               base[key] = group;
             } else {
               for (const n of group.notifications) {
-                if (!base[key].notifications.some((existing) => existing.id === n.id)) {
-                  base[key].notifications.unshift(n);
-                }
+                  upsertNotification(base[key].notifications, n);
               }
             }
           }
@@ -197,7 +205,9 @@ export function useNotificationStream(): void {
         if (buffer.length > 0) {
           const late = buffer.splice(0);
           for (const item of late) {
-            if (!restIds.has(item.id)) {
+            if (restIds.has(item.id)) {
+              setNotificationGroups((prev) => mergeNotification(prev, item));
+            } else {
               handleSseItem(item);
             }
           }

@@ -418,6 +418,47 @@ describe('needsCommitStep', () => {
     ).toBe(true);
   });
 
+  it('is false when no fixes were applied even if proposal patches remain', () => {
+    expect(
+      needsCommitStep(
+        baseState({
+          status: 'completed',
+          result: {
+            total_violations: 1,
+            fixable: 1,
+            ai_proposed: 1,
+            ai_declined: 1,
+            ai_accepted: 0,
+            manual_review: 0,
+            remediated_count: 0,
+            fixed_violations: [],
+            patches: [{ file: 'a.yml', diff: '@@' }],
+          },
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('falls back to patches when older results omit remediated_count', () => {
+    expect(
+      needsCommitStep(
+        baseState({
+          status: 'completed',
+          result: {
+            total_violations: 1,
+            fixable: 1,
+            ai_proposed: 0,
+            ai_declined: 0,
+            ai_accepted: 0,
+            manual_review: 0,
+            fixed_violations: [],
+            patches: [{ file: 'a.yml', diff: '@@' }],
+          } as unknown as NonNullable<ProjectOperationState['result']>,
+        }),
+      ),
+    ).toBe(true);
+  });
+
   it('is false when a PR already exists', () => {
     expect(
       needsCommitStep(

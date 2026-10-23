@@ -297,27 +297,51 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
 
    ```bash
    pr_number=N
+   pr_branch=$(gh pr view "$pr_number" --json headRefName --jq .headRefName) || exit 1
    expected_head=$(gh pr view "$pr_number" --json headRefOid --jq .headRefOid) || exit 1
+   git check-ref-format --branch "$pr_branch" >/dev/null || exit 1
+   case "$expected_head" in
+     *[!0-9a-fA-F]*|'') echo "Invalid PR head commit metadata; stop." >&2; exit 1 ;;
+   esac
+   test "${#expected_head}" -eq 40 || exit 1
    git config --local pr-address-feedback.expectedHead "$expected_head"
    ```
 
    Before fetching, confirm that the base remote's fetch URL matches the
    repository identified by the PR URL. Confirm that the PR head remote's push
-   URL matches `headRepository.nameWithOwner`. Keep the verified base remote
-   name in a quoted shell variable and validate it against `git remote`; read
-   the base branch into a quoted variable and validate it with
+   fetch and push URLs match `headRepository.nameWithOwner`. Keep the verified
+   base remote name in a quoted shell variable and validate it against
+   `git remote`; read the base branch into a quoted variable and validate it with
    `git check-ref-format --branch` before using it:
 
    ```bash
+   pr_number=N
+   pr_branch=$(gh pr view "$pr_number" --json headRefName --jq .headRefName) || exit 1
+   expected_head=$(git config --local --get pr-address-feedback.expectedHead) || exit 1
+   pr_remote='verified-pr-remote-name'
    base_remote='verified-base-remote-name'
-   base_branch=$(gh pr view N --json baseRefName --jq .baseRefName) || exit 1
+   base_branch=$(gh pr view "$pr_number" --json baseRefName --jq .baseRefName) || exit 1
+   git remote | grep -Fxq -- "$pr_remote" || exit 1
    git remote | grep -Fxq -- "$base_remote" || exit 1
+   git fetch "$pr_remote" "+refs/heads/$pr_branch:refs/remotes/$pr_remote/$pr_branch" || exit 1
+   fetched_head=$(git rev-parse "refs/remotes/$pr_remote/$pr_branch^{commit}") || exit 1
+   test "$fetched_head" = "$expected_head" || {
+     echo "The PR head changed after it was recorded; stop and resync." >&2
+     exit 1
+   }
+   git merge-base --is-ancestor "$expected_head" HEAD || {
+     echo "Local HEAD does not contain the recorded PR head; stop and sync the branch." >&2
+     exit 1
+   }
    git check-ref-format --branch "$base_branch" >/dev/null || exit 1
    git fetch "$base_remote" "refs/heads/$base_branch:refs/remotes/$base_remote/$base_branch"
    git rebase "$base_remote/$base_branch"
    ```
 
-   If the PR targets another branch or uses a differently named base remote,
+   The PR head fetch must match the saved `headRefOid`, and that commit must be
+   an ancestor of local `HEAD`; stop if either check fails. This prevents
+   rebasing or pushing from a stale or divergent checkout. If the PR targets
+   another branch or uses a differently named base remote,
    use its recorded remote and branch in these variables. If no
    remote URL matches the PR base repository or no current base can be fetched,
    stop and report the blocker. Do not inspect or address review feedback until

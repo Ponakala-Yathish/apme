@@ -24,7 +24,7 @@ import type { ApmeApiAdapter } from './api/apmeApiAdapter';
 export async function resolveAiModel(
   api: ApmeApiAdapter,
   getAiModel?: () => string | undefined,
-): Promise<string | undefined> {
+): Promise<string> {
   let selectedModel: string | undefined;
   try {
     selectedModel = getAiModel?.();
@@ -39,13 +39,14 @@ export async function resolveAiModel(
   try {
     models = await listAiModels(api);
   } catch {
-    // An unverified stored id is unsafe to submit; let the server use its configured default.
-    return undefined;
+    throw new Error('Could not verify an AI model. Check AI provider availability and try again.');
   }
   if (selectedModel && models.some((model) => model.id === selectedModel)) {
     return selectedModel;
   }
-  return models[0]?.id;
+  const fallbackModel = models[0]?.id;
+  if (fallbackModel) return fallbackModel;
+  throw new Error('No AI model is available. Check the AI provider configuration and try again.');
 }
 
 export interface ProjectWorkflowCheckOptions {
@@ -222,7 +223,15 @@ export function useProjectWorkflow(
     invalidatePendingCancel();
     clearOp();
     const colls = buildColls();
-    const aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+    let aiModel: string | undefined;
+    try {
+      aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+    } catch (err) {
+      console.error('Could not resolve AI model:', err);
+      refreshOp();
+      window.alert(err instanceof Error ? err.message : 'Could not verify an AI model.');
+      return;
+    }
     openSession();
 
     const startOnce = (abandonWorkingSet: boolean) =>
@@ -294,17 +303,33 @@ export function useProjectWorkflow(
         );
         if (ok) {
           const colls = buildColls();
-          const aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+          let aiModel: string | undefined;
+          try {
+            aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+          } catch (startErr) {
+            console.error('Could not resolve AI model:', startErr);
+            window.alert(
+              startErr instanceof Error ? startErr.message : 'Could not verify an AI model.',
+            );
+            return;
+          }
           openSession();
-          await startOp('remediate', {
-            ansible_version: ansibleVersion || undefined,
-            collection_specs: colls.length ? colls : undefined,
-            enable_ai: enableAi,
-            ai_model: aiModel,
-            interactive: !autoApplyTier1,
-            abandon_working_set: true,
-          });
-          refreshOp();
+          try {
+            await startOp('remediate', {
+              ansible_version: ansibleVersion || undefined,
+              collection_specs: colls.length ? colls : undefined,
+              enable_ai: enableAi,
+              ai_model: aiModel,
+              interactive: !autoApplyTier1,
+              abandon_working_set: true,
+            });
+            refreshOp();
+          } catch (startErr) {
+            console.error('Failed to restart remediation:', startErr);
+            window.alert(
+              startErr instanceof Error ? startErr.message : 'Failed to restart remediation.',
+            );
+          }
         }
         return;
       }
@@ -375,7 +400,14 @@ export function useProjectWorkflow(
     if (!ok) return;
 
     const colls = buildColls();
-    const aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+    let aiModel: string | undefined;
+    try {
+      aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+    } catch (err) {
+      console.error('Could not resolve AI model:', err);
+      window.alert(err instanceof Error ? err.message : 'Could not verify an AI model.');
+      return;
+    }
     invalidatePendingCancel();
     clearOp();
     setAttachOp(true);
@@ -393,7 +425,9 @@ export function useProjectWorkflow(
       refreshOp();
     } catch (err) {
       console.error('Failed to start over:', err);
-      window.alert('Could not start over. Try Scan again from Options.');
+      window.alert(
+        err instanceof Error ? err.message : 'Could not start over. Try Scan again from Options.',
+      );
     }
   }, [
     ansibleVersion,

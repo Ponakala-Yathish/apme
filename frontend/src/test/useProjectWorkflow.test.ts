@@ -8,6 +8,7 @@ const workflowMocks = vi.hoisted(() => {
   return {
     start: vi.fn(),
     beginRemediate: vi.fn(),
+    cancel: vi.fn(),
     refresh: vi.fn(),
     clear: vi.fn(),
     SessionExpiredError: MockSessionExpiredError,
@@ -35,7 +36,7 @@ vi.mock('../../packages/ui-workflow/src/hooks/useProjectOperationActions', () =>
     start: workflowMocks.start,
     approve: vi.fn(),
     beginRemediate: workflowMocks.beginRemediate,
-    cancel: vi.fn(),
+    cancel: workflowMocks.cancel,
     createPR: vi.fn(),
     patchProposals: vi.fn(),
     escalateAi: vi.fn(),
@@ -65,6 +66,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
   workflowMocks.start.mockReset().mockResolvedValue(undefined);
   workflowMocks.beginRemediate.mockReset().mockResolvedValue(undefined);
+  workflowMocks.cancel.mockReset().mockResolvedValue(undefined);
   workflowMocks.refresh.mockReset();
   workflowMocks.clear.mockReset();
   vi.mocked(listAiModels).mockReset();
@@ -326,5 +328,69 @@ describe('resolveAiModel', () => {
     expect(console.error).not.toHaveBeenCalled();
     expect(alert).not.toHaveBeenCalled();
     expect(workflowMocks.start).not.toHaveBeenCalled();
+  });
+
+  it('invalidates pending start-over when cancellation begins', async () => {
+    const catalog = deferModelCatalog();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    let finishCancel!: () => void;
+    workflowMocks.cancel.mockImplementation(
+      () => new Promise<void>((resolve) => {
+        finishCancel = resolve;
+      }),
+    );
+    const { result } = renderWorkflow();
+    let startOverPromise!: Promise<void>;
+
+    await act(async () => {
+      startOverPromise = result.current.startOver();
+      await Promise.resolve();
+    });
+    expect(listAiModels).toHaveBeenCalledOnce();
+
+    let cancelPromise!: Promise<void>;
+    await act(async () => {
+      cancelPromise = result.current.cancel();
+      await Promise.resolve();
+    });
+    catalog.resolve([{ id: 'model-a', provider: 'provider', name: 'Model A' }]);
+    await act(async () => startOverPromise);
+
+    expect(workflowMocks.start).not.toHaveBeenCalled();
+    finishCancel();
+    await act(async () => cancelPromise);
+  });
+
+  it('invalidates pending expired-session remediation when cancellation begins', async () => {
+    const catalog = deferModelCatalog();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    workflowMocks.beginRemediate.mockRejectedValueOnce(new SessionExpiredError('expired'));
+    let finishCancel!: () => void;
+    workflowMocks.cancel.mockImplementation(
+      () => new Promise<void>((resolve) => {
+        finishCancel = resolve;
+      }),
+    );
+    const { result } = renderWorkflow();
+    let remediatePromise!: Promise<void>;
+
+    await act(async () => {
+      remediatePromise = result.current.beginRemediate();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(listAiModels).toHaveBeenCalledOnce();
+
+    let cancelPromise!: Promise<void>;
+    await act(async () => {
+      cancelPromise = result.current.cancel();
+      await Promise.resolve();
+    });
+    catalog.resolve([{ id: 'model-a', provider: 'provider', name: 'Model A' }]);
+    await act(async () => remediatePromise);
+
+    expect(workflowMocks.start).not.toHaveBeenCalled();
+    finishCancel();
+    await act(async () => cancelPromise);
   });
 });

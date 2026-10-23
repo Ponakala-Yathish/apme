@@ -477,6 +477,7 @@ export function useProjectWorkflow(
 
   const cancel = useCallback(async () => {
     if (isCancelling) return;
+    cancelGenerationRef.current += 1;
     const generation = cancelGenerationRef.current;
     setIsCancelling(true);
     try {

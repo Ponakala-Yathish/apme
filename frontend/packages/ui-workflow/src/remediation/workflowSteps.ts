@@ -105,12 +105,15 @@ export function shouldIncludeAiSteps(
   return proposals.length > 0 && isAiRemediationProposal(proposals[0]!);
 }
 
-/** True when remediation produced patches that still need a commit/PR decision. */
+/** True when the operation applied changes that still need a commit/PR decision. */
 export function needsCommitStep(state: ProjectOperationState): boolean {
   if (state.pr_url) return false;
-  const remediated = state.result?.remediated_count ?? 0;
+  const remediated = state.result?.remediated_count;
+  // Proposal diffs can remain in the response even when the user accepted no
+  // fixes. When the applied count is present, it is authoritative for shipping.
+  if (remediated !== undefined) return remediated > 0;
   const patches = state.result?.patches?.length ?? 0;
-  return remediated > 0 || patches > 0;
+  return patches > 0;
 }
 
 function isTerminalSuccess(status: string): boolean {

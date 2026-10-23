@@ -18,12 +18,34 @@ import {
 } from './hooks/useProjectOperationActions';
 import type { AiEscalateTarget } from './components/AiEscalationPanel';
 import { AI_MODEL_STORAGE_KEY } from './shared/constants';
+import { listAiModels } from './api/listAiModels';
+import type { ApmeApiAdapter } from './api/apmeApiAdapter';
 
-function resolveAiModel(getAiModel?: () => string | undefined): string | undefined {
-  const configuredModel = getAiModel?.();
-  if (configuredModel) return configuredModel;
-  if (typeof localStorage === 'undefined') return undefined;
-  return localStorage.getItem(AI_MODEL_STORAGE_KEY) || undefined;
+export async function resolveAiModel(
+  api: ApmeApiAdapter,
+  getAiModel?: () => string | undefined,
+): Promise<string | undefined> {
+  let selectedModel: string | undefined;
+  try {
+    selectedModel = getAiModel?.();
+    if (!selectedModel && typeof localStorage !== 'undefined') {
+      selectedModel = localStorage.getItem(AI_MODEL_STORAGE_KEY) || undefined;
+    }
+  } catch {
+    // Storage may be blocked by the browser; the model catalog can still supply a default.
+  }
+
+  let models;
+  try {
+    models = await listAiModels(api);
+  } catch {
+    // An unverified stored id is unsafe to submit; let the server use its configured default.
+    return undefined;
+  }
+  if (selectedModel && models.some((model) => model.id === selectedModel)) {
+    return selectedModel;
+  }
+  return models[0]?.id;
 }
 
 export interface ProjectWorkflowCheckOptions {
@@ -200,6 +222,7 @@ export function useProjectWorkflow(
     invalidatePendingCancel();
     clearOp();
     const colls = buildColls();
+    const aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
     openSession();
 
     const startOnce = (abandonWorkingSet: boolean) =>
@@ -207,7 +230,7 @@ export function useProjectWorkflow(
         ansible_version: ansibleVersion || undefined,
         collection_specs: colls.length ? colls : undefined,
         enable_ai: enableAi,
-        ai_model: enableAi ? resolveAiModel(getAiModel) : undefined,
+        ai_model: aiModel,
         assess_pause: true,
         interactive: !autoApplyTier1,
         ...(abandonWorkingSet ? { abandon_working_set: true } : {}),
@@ -250,6 +273,7 @@ export function useProjectWorkflow(
     autoApplyTier1,
     buildColls,
     enableAi,
+    api,
     getAiModel,
     clearOp,
     invalidatePendingCancel,
@@ -270,12 +294,13 @@ export function useProjectWorkflow(
         );
         if (ok) {
           const colls = buildColls();
+          const aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
           openSession();
           await startOp('remediate', {
             ansible_version: ansibleVersion || undefined,
             collection_specs: colls.length ? colls : undefined,
             enable_ai: enableAi,
-            ai_model: enableAi ? resolveAiModel(getAiModel) : undefined,
+            ai_model: aiModel,
             interactive: !autoApplyTier1,
             abandon_working_set: true,
           });
@@ -291,6 +316,7 @@ export function useProjectWorkflow(
     beginRemediateOp,
     buildColls,
     enableAi,
+    api,
     getAiModel,
     openSession,
     refreshOp,
@@ -349,6 +375,7 @@ export function useProjectWorkflow(
     if (!ok) return;
 
     const colls = buildColls();
+    const aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
     invalidatePendingCancel();
     clearOp();
     setAttachOp(true);
@@ -358,7 +385,7 @@ export function useProjectWorkflow(
         ansible_version: ansibleVersion || undefined,
         collection_specs: colls.length ? colls : undefined,
         enable_ai: enableAi,
-        ai_model: enableAi ? resolveAiModel(getAiModel) : undefined,
+        ai_model: aiModel,
         assess_pause: true,
         interactive: true,
         abandon_working_set: true,
@@ -373,6 +400,7 @@ export function useProjectWorkflow(
     buildColls,
     clearOp,
     enableAi,
+    api,
     getAiModel,
     invalidatePendingCancel,
     onOpenSession,

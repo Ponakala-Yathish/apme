@@ -657,6 +657,7 @@ async def get_project_detail(project_id: str) -> ProjectDetail:
         HTTPException: 404 if project not found.
     """
     from apme_gateway.scan.driver import fetch_remote_head
+    from apme_gateway.scm.tokens import select_usable_scm_token
 
     async with get_session() as db:
         proj = await q.resolve_project(db, project_id)
@@ -677,7 +678,7 @@ async def get_project_detail(project_id: str) -> ProjectDetail:
         from apme_gateway.config import load_config
 
         cfg = load_config()
-        token = proj.scm_token or cfg.scm_token
+        token = select_usable_scm_token(proj.scm_token, cfg.scm_token)
         remote_sha = await fetch_remote_head(
             proj.repo_url, proj.branch, scm_token=token, scm_provider=proj.scm_provider
         )
@@ -2290,6 +2291,7 @@ async def project_operate_ws(
         run_project_operation,
     )
     from apme_gateway.scan.operator_queue import OperatorAnswerQueue
+    from apme_gateway.scm.tokens import select_usable_scm_token
 
     await websocket.accept()
 
@@ -2305,7 +2307,7 @@ async def project_operate_ws(
             return
 
         cfg = load_config()
-        scm_token = proj.scm_token or cfg.scm_token
+        scm_token = select_usable_scm_token(proj.scm_token, cfg.scm_token)
         remote_sha = await fetch_remote_head(
             proj.repo_url, proj.branch, scm_token=scm_token, scm_provider=proj.scm_provider
         )

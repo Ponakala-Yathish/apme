@@ -1068,13 +1068,15 @@ class TestSubmitEndpoint:
         assert resp.status_code == 422
         assert "No SCM token" in resp.json()["detail"]
 
-    async def test_global_token_fallback(self, client: AsyncClient) -> None:
-        """Use global APME_SCM_TOKEN when project has no token.
+    @pytest.mark.parametrize("project_token", [None, " \t"])  # type: ignore[untyped-decorator]
+    async def test_global_token_fallback(self, client: AsyncClient, project_token: str | None) -> None:
+        """Use global APME_SCM_TOKEN when the project token is blank.
 
         Args:
             client: Async test client.
+            project_token: Project-level token to test before global fallback.
         """
-        await _seed_project_with_remediation()
+        await _seed_project_with_remediation(scm_token=project_token)
         _setup_completed_operation()
 
         with (
@@ -1092,6 +1094,8 @@ class TestSubmitEndpoint:
             resp = await client.post("/api/v1/projects/proj-1/operation/submit")
 
         assert resp.status_code == 200
+        assert mock_provider.create_branch.await_args is not None
+        assert mock_provider.create_branch.await_args.args[-1] == "ghp_global_token"
 
     async def test_custom_branch_and_title(self, client: AsyncClient) -> None:
         """Custom branch_name and title are forwarded to the provider.

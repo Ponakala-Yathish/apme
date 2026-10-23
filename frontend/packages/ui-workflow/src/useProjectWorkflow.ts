@@ -17,6 +17,37 @@ import {
   WorkingSetConflictError,
 } from './hooks/useProjectOperationActions';
 import type { AiEscalateTarget } from './components/AiEscalationPanel';
+import { AI_MODEL_STORAGE_KEY } from './shared/constants';
+import { listAiModels } from './api/listAiModels';
+import type { ApmeApiAdapter } from './api/apmeApiAdapter';
+
+export async function resolveAiModel(
+  api: ApmeApiAdapter,
+  getAiModel?: () => string | undefined,
+): Promise<string> {
+  let selectedModel: string | undefined;
+  try {
+    selectedModel = getAiModel?.();
+    if (!selectedModel && typeof localStorage !== 'undefined') {
+      selectedModel = localStorage.getItem(AI_MODEL_STORAGE_KEY) || undefined;
+    }
+  } catch {
+    // Storage may be blocked by the browser; the model catalog can still supply a default.
+  }
+
+  let models;
+  try {
+    models = await listAiModels(api);
+  } catch {
+    throw new Error('Could not verify an AI model. Check AI provider availability and try again.');
+  }
+  if (selectedModel && models.some((model) => model.id === selectedModel)) {
+    return selectedModel;
+  }
+  const fallbackModel = models[0]?.id;
+  if (fallbackModel) return fallbackModel;
+  throw new Error('No AI model is available. Check the AI provider configuration and try again.');
+}
 
 export interface ProjectWorkflowCheckOptions {
   ansibleVersion: string;
@@ -191,7 +222,19 @@ export function useProjectWorkflow(
   const startScan = useCallback(async () => {
     invalidatePendingCancel();
     clearOp();
+    const scanGeneration = cancelGenerationRef.current;
     const colls = buildColls();
+    let aiModel: string | undefined;
+    try {
+      aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+    } catch (err) {
+      if (scanGeneration !== cancelGenerationRef.current) return;
+      console.error('Could not resolve AI model:', err);
+      refreshOp();
+      window.alert(err instanceof Error ? err.message : 'Could not verify an AI model.');
+      return;
+    }
+    if (scanGeneration !== cancelGenerationRef.current) return;
     openSession();
 
     const startOnce = (abandonWorkingSet: boolean) =>
@@ -199,7 +242,7 @@ export function useProjectWorkflow(
         ansible_version: ansibleVersion || undefined,
         collection_specs: colls.length ? colls : undefined,
         enable_ai: enableAi,
-        ai_model: enableAi ? getAiModel?.() : undefined,
+        ai_model: aiModel,
         assess_pause: true,
         interactive: !autoApplyTier1,
         ...(abandonWorkingSet ? { abandon_working_set: true } : {}),
@@ -242,6 +285,7 @@ export function useProjectWorkflow(
     autoApplyTier1,
     buildColls,
     enableAi,
+    api,
     getAiModel,
     clearOp,
     invalidatePendingCancel,
@@ -251,27 +295,48 @@ export function useProjectWorkflow(
   ]);
 
   const beginRemediate = useCallback(async () => {
+    const generation = cancelGenerationRef.current;
     try {
       openSession();
       await beginRemediateOp();
       refreshOp();
     } catch (err) {
       if (err instanceof SessionExpiredError) {
+        if (generation !== cancelGenerationRef.current) return;
         const ok = window.confirm(
           'Assessment session expired. Start a full remediate (rescan)?',
         );
         if (ok) {
           const colls = buildColls();
+          let aiModel: string | undefined;
+          try {
+            aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+          } catch (startErr) {
+            if (generation !== cancelGenerationRef.current) return;
+            console.error('Could not resolve AI model:', startErr);
+            window.alert(
+              startErr instanceof Error ? startErr.message : 'Could not verify an AI model.',
+            );
+            return;
+          }
+          if (generation !== cancelGenerationRef.current) return;
           openSession();
-          await startOp('remediate', {
-            ansible_version: ansibleVersion || undefined,
-            collection_specs: colls.length ? colls : undefined,
-            enable_ai: enableAi,
-            ai_model: enableAi ? getAiModel?.() : undefined,
-            interactive: !autoApplyTier1,
-            abandon_working_set: true,
-          });
-          refreshOp();
+          try {
+            await startOp('remediate', {
+              ansible_version: ansibleVersion || undefined,
+              collection_specs: colls.length ? colls : undefined,
+              enable_ai: enableAi,
+              ai_model: aiModel,
+              interactive: !autoApplyTier1,
+              abandon_working_set: true,
+            });
+            refreshOp();
+          } catch (startErr) {
+            console.error('Failed to restart remediation:', startErr);
+            window.alert(
+              startErr instanceof Error ? startErr.message : 'Failed to restart remediation.',
+            );
+          }
         }
         return;
       }
@@ -283,6 +348,7 @@ export function useProjectWorkflow(
     beginRemediateOp,
     buildColls,
     enableAi,
+    api,
     getAiModel,
     openSession,
     refreshOp,
@@ -340,7 +406,18 @@ export function useProjectWorkflow(
     );
     if (!ok) return;
 
+    const generation = cancelGenerationRef.current;
     const colls = buildColls();
+    let aiModel: string | undefined;
+    try {
+      aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
+    } catch (err) {
+      if (generation !== cancelGenerationRef.current) return;
+      console.error('Could not resolve AI model:', err);
+      window.alert(err instanceof Error ? err.message : 'Could not verify an AI model.');
+      return;
+    }
+    if (generation !== cancelGenerationRef.current) return;
     invalidatePendingCancel();
     clearOp();
     setAttachOp(true);
@@ -350,7 +427,7 @@ export function useProjectWorkflow(
         ansible_version: ansibleVersion || undefined,
         collection_specs: colls.length ? colls : undefined,
         enable_ai: enableAi,
-        ai_model: enableAi ? getAiModel?.() : undefined,
+        ai_model: aiModel,
         assess_pause: true,
         interactive: true,
         abandon_working_set: true,
@@ -358,13 +435,16 @@ export function useProjectWorkflow(
       refreshOp();
     } catch (err) {
       console.error('Failed to start over:', err);
-      window.alert('Could not start over. Try Scan again from Options.');
+      window.alert(
+        err instanceof Error ? err.message : 'Could not start over. Try Scan again from Options.',
+      );
     }
   }, [
     ansibleVersion,
     buildColls,
     clearOp,
     enableAi,
+    api,
     getAiModel,
     invalidatePendingCancel,
     onOpenSession,
@@ -397,6 +477,7 @@ export function useProjectWorkflow(
 
   const cancel = useCallback(async () => {
     if (isCancelling) return;
+    cancelGenerationRef.current += 1;
     const generation = cancelGenerationRef.current;
     setIsCancelling(true);
     try {

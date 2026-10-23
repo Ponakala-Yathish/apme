@@ -28,6 +28,7 @@ from apme_gateway.scan.driver import (
     run_project_scan,
 )
 from apme_gateway.scm.redaction import redact_credentials
+from apme_gateway.scm.tokens import select_usable_scm_token
 
 
 def _decode_auth_env(env: dict[str, str]) -> str:
@@ -48,6 +49,28 @@ def _decode_auth_env(env: dict[str, str]) -> str:
     scheme, _, encoded = value.partition("Basic ")
     assert scheme.strip().rstrip(":").upper() == "AUTHORIZATION"
     return base64.b64decode(encoded.strip()).decode("utf-8")
+
+
+@pytest.mark.parametrize(  # type: ignore[untyped-decorator]
+    ("tokens", "expected"),
+    [
+        ((None, "global"), "global"),
+        (("", "global"), "global"),
+        ((" \t", "global"), "global"),
+        (("project", "global"), "project"),
+        ((" \t", "\n"), None),
+    ],
+)
+def test_select_usable_scm_token_uses_first_nonblank_candidate(
+    tokens: tuple[str | None, ...], expected: str | None
+) -> None:
+    """Skip blank higher-priority tokens and keep the first usable value.
+
+    Args:
+        tokens: SCM credentials in precedence order.
+        expected: First usable credential or ``None``.
+    """
+    assert select_usable_scm_token(*tokens) == expected
 
 
 @pytest.mark.parametrize(  # type: ignore[untyped-decorator]
@@ -710,10 +733,14 @@ def test_auth_cache_marker_separates_url_userpass() -> None:
     """Credential source and values produce opaque, distinct cache markers."""
     marker_a = _auth_cache_marker(None, ("deployer", "secret-a"))
     marker_b = _auth_cache_marker(None, ("deployer", "secret-b"))
+    marker_empty = _auth_cache_marker("", ("deployer", "secret-a"))
+    marker_blank = _auth_cache_marker(" \t", ("deployer", "secret-a"))
     marker_token = _auth_cache_marker("deployer:secret-a", None)
     assert marker_a.startswith(":auth:")
     assert marker_b.startswith(":auth:")
     assert marker_a != marker_b
+    assert marker_empty == marker_a
+    assert marker_blank == marker_a
     assert marker_a != marker_token
     assert marker_a == _auth_cache_marker(None, ("deployer", "secret-a"))
     assert "secret-a" not in marker_a
@@ -731,13 +758,16 @@ async def test_clone_repo_timeout_expired_surfaces_runtime_error() -> None:
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
+@pytest.mark.parametrize("scm_token", [None, "", " \t"])  # type: ignore[untyped-decorator]
 async def test_clone_repo_strips_embedded_userinfo(
     caplog: pytest.LogCaptureFixture,
+    scm_token: str | None,
 ) -> None:
     """Userinfo in the stored URL never reaches git argv; host is warned, secret is not.
 
     Args:
         caplog: Pytest log capture fixture.
+        scm_token: Optional SCM token to verify blank-token fallback.
     """
     secret_url = "https://deployer:s3cret-token@github.com/owner/repo.git"
     with (
@@ -752,7 +782,7 @@ async def test_clone_repo_strips_embedded_userinfo(
         mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
 
         with tempfile.TemporaryDirectory() as td:
-            await clone_repo(secret_url, "main", os.path.join(td, "repo"))
+            await clone_repo(secret_url, "main", os.path.join(td, "repo"), scm_token=scm_token)
 
     call_args = mock_run.call_args[0][0]
     assert call_args[-2] == "https://github.com/owner/repo.git"
@@ -842,6 +872,41 @@ async def test_fetch_remote_head_strips_embedded_userinfo(
         for record in caplog.records
     )
     assert "s3cret-token" not in caplog.text
+
+
+@pytest.mark.asyncio  # type: ignore[untyped-decorator]
+@pytest.mark.parametrize("scm_token", ["", " \t"])  # type: ignore[untyped-decorator]
+async def test_fetch_remote_head_blank_token_uses_url_credentials(scm_token: str) -> None:
+    """Blank tokens preserve URL auth and use the URL credential cache partition.
+
+    Args:
+        scm_token: Blank token value to verify.
+    """
+    fake_sha = "a" * 40
+    _REMOTE_HEAD_CACHE.clear()
+    _REMOTE_HEAD_NEG_CACHE.clear()
+    secret_url = "https://deployer:s3cret-token@github.com/owner/repo.git"
+    with (
+        patch("apme_gateway.scan.driver.asyncio.get_running_loop") as mock_loop,
+        patch("apme_gateway.scan.driver.subprocess.run") as mock_run,
+    ):
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = f"{fake_sha}\trefs/heads/main\n"
+        mock_run.return_value = result
+        mock_loop.return_value.run_in_executor = AsyncMock(side_effect=lambda _exec, func: func())
+
+        sha = await fetch_remote_head(secret_url, "main", scm_token=scm_token)
+        alternate_blank_token = " \t" if scm_token == "" else ""
+        cached_sha = await fetch_remote_head(secret_url, "main", scm_token=alternate_blank_token)
+
+    assert sha == fake_sha
+    assert cached_sha == fake_sha
+    mock_run.assert_called_once()
+    call_args = mock_run.call_args[0][0]
+    assert call_args[3] == "https://github.com/owner/repo.git"
+    assert "s3cret-token" not in " ".join(call_args)
+    assert _decode_auth_env(mock_run.call_args.kwargs["env"]) == "deployer:s3cret-token"
 
 
 class TestRedactTightenedPatterns:

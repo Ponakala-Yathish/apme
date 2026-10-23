@@ -225,6 +225,7 @@ async def initiate_operation(project_id: str, body: OperateRequest) -> OperateRe
     """
     from apme_gateway._galaxy_inject import load_galaxy_server_defs
     from apme_gateway.config import load_config
+    from apme_gateway.scm.tokens import select_usable_scm_token
 
     async with get_session() as db:
         proj = await q.resolve_project(db, project_id)
@@ -292,7 +293,7 @@ async def initiate_operation(project_id: str, body: OperateRequest) -> OperateRe
             options=body.options,
             scan_id=scan_id,
             galaxy_servers=galaxy_servers,
-            scm_token=proj.scm_token or cfg.scm_token,
+            scm_token=select_usable_scm_token(proj.scm_token, cfg.scm_token),
             scm_provider=proj.scm_provider,
         )
     )
@@ -622,6 +623,7 @@ async def submit_operation(
     """
     from apme_gateway.config import load_config
     from apme_gateway.scm import detect_provider, get_provider
+    from apme_gateway.scm.tokens import select_usable_scm_token
 
     if body is None:
         body = SubmitRequest()
@@ -686,7 +688,7 @@ async def submit_operation(
         )
 
     inline_token = body.scm_token.strip() if body.scm_token else None
-    token = inline_token or project.scm_token or cfg.scm_token
+    token = select_usable_scm_token(inline_token, project.scm_token, cfg.scm_token)
     if not token:
         if state:
             get_operation_registry().transition(

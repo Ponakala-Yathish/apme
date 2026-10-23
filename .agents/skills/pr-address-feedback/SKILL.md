@@ -268,12 +268,41 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
 
 ## Workflow
 
-1. **Sync Branch:** Ensure the PR branch is up to date with upstream main.
+1. **Rebase Before Review Work:** Before reading feedback to plan changes or
+   editing code, confirm the PR's base branch and make sure the working tree is
+   clean. Preserve any existing work by committing or safely stashing it; never
+   discard it to make the rebase possible. Always fetch the latest PR base and
+   attempt to rebase the PR branch onto it, even when it appears up to date.
+   The base is usually `upstream/main`:
 
    ```bash
    git fetch upstream
    git rebase upstream/main
    ```
+
+   If the PR targets another branch, fetch and rebase onto that branch instead.
+   If `upstream` is unavailable, use the canonical repository remote for the
+   PR's base. If no current base can be fetched, report that the rebase could
+   not be attempted before proceeding.
+
+   Resolve every rebase conflict before starting review changes. Inspect each
+   conflicted file and preserve both the latest base-branch changes and the
+   intent of the PR commits. Then stage the resolved files and continue the
+   rebase, repeating until it completes:
+
+   ```bash
+   git status
+   # edit conflicted files, then:
+   git add <resolved-files>
+   git rebase --continue
+   ```
+
+   Do not use `git rebase --skip` to drop substantive PR work or resolve
+   conflicts by blindly choosing one side. If a conflict cannot be resolved
+   safely, abort the rebase, preserve the branch, and report the conflict
+   before making review changes. Once the rebase completes, verify the branch
+   and diff, then restore any safely stashed work and resolve any resulting
+   conflicts before continuing.
 
 2. **Review & Plan:** Check CI status and read all review comments. **Write out a brief Action Plan** detailing which files you will edit to fix the comments.
 

@@ -273,6 +273,16 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    clean. Preserve any existing work by committing or safely stashing it; never
    discard it to make the rebase possible. Always fetch the latest PR base and
    attempt to rebase the PR branch onto it, even when it appears up to date.
+   Record the PR's base branch, head repository, and head branch from its
+   metadata, and map the head repository to its configured Git remote. Use
+   these recorded values for the rebase and push steps; do not assume the head
+   remote is named `origin`:
+
+   ```bash
+   gh pr view N --json baseRefName,headRefName,headRepository
+   git remote -v
+   ```
+
    The base is usually `upstream/main`:
 
    ```bash
@@ -308,7 +318,12 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
 
 3. **Fix & Validate Locally:** Fix all issues in minimal commits. **Crucially, run local validation before pushing** (e.g., `tox -e lint` or `tox -e unit`) to ensure your fix doesn't break something else.
 
-4. **Push:** `git push --force-with-lease`
+4. **Push:** Push only to the verified PR remote and head branch, using an
+   explicit refspec so Git's push configuration cannot select other branches:
+
+   ```bash
+   git push --force-with-lease <pr-remote> HEAD:<pr-branch>
+   ```
 
 5. **Wait & Verify Remote CI:** Wait 2-3 minutes for remote CI pipelines to run, then check their status. Some tests only run remotely; fix any remote-only failures before proceeding.
 

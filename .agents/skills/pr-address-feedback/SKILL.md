@@ -274,13 +274,14 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    discard it to make the rebase possible. Always fetch the latest PR base and
    attempt to rebase the PR branch onto it, even when it appears up to date.
    Record the PR's base branch, head repository, head branch, and URL from its
-   metadata. Map the base and head repositories to configured Git remotes by
-   checking their fetch and push URLs; do not assume the remotes are named
-   `upstream` or `origin`. The PR URL identifies the base repository. Normalize
-   SSH and HTTPS URLs and an optional `.git` suffix when comparing repository
-   names. Verify that the checked-out local branch is the PR head branch and
-   tracks the recorded head remote and branch. If detached or mismatched, use
-   `gh pr checkout N` and verify the checkout before continuing:
+   metadata, keeping those values as data rather than interpolating them into
+   shell command text. Map the base and head repositories to configured Git
+   remotes by checking their fetch and push URLs; do not assume the remotes are
+   named `upstream` or `origin`. The PR URL identifies the base repository.
+   Normalize SSH and HTTPS URLs and an optional `.git` suffix when comparing
+   repository names. Verify that the checked-out local branch is the PR head
+   branch and tracks the recorded head remote and branch. If detached or
+   mismatched, use `gh pr checkout N` and verify the checkout before continuing:
 
    ```bash
    gh pr view N --json baseRefName,headRefName,headRepository,url
@@ -291,18 +292,25 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
 
    Before fetching, confirm that the base remote's fetch URL matches the
    repository identified by the PR URL. Confirm that the PR head remote's push
-   URL matches `headRepository.nameWithOwner`. Fetch and rebase the recorded
-   base branch from the verified base remote. The base is usually `upstream/main`:
+   URL matches `headRepository.nameWithOwner`. Keep the verified base remote
+   name in a quoted shell variable and validate it against `git remote`; read
+   the base branch into a quoted variable and validate it with
+   `git check-ref-format --branch` before using it:
 
    ```bash
-   git fetch upstream
-   git rebase upstream/main
+   base_remote='verified-base-remote-name'
+   base_branch=$(gh pr view N --json baseRefName --jq .baseRefName) || exit 1
+   git remote | grep -Fxq -- "$base_remote" || exit 1
+   git check-ref-format --branch "$base_branch" >/dev/null || exit 1
+   git fetch "$base_remote" "refs/heads/$base_branch:refs/remotes/$base_remote/$base_branch"
+   git rebase "$base_remote/$base_branch"
    ```
 
    If the PR targets another branch or uses a differently named base remote,
-   fetch and rebase onto the recorded `<base-remote>/<base-branch>`. If no
+   use its recorded remote and branch in these variables. If no
    remote URL matches the PR base repository or no current base can be fetched,
-   report that the rebase could not be attempted before proceeding.
+   stop and report the blocker. Do not inspect or address review feedback until
+   the rebase completes successfully.
 
    Resolve every rebase conflict before starting review changes. Inspect each
    conflicted file and preserve both the latest base-branch changes and the
@@ -331,15 +339,26 @@ Remove unused imports or use the symbol. Prefer trimming the import list over `#
    explicit refspec so Git's push configuration cannot select other branches:
 
    ```bash
-   test "$(git branch --show-current)" = "<pr-branch>" || {
+   pr_number=N
+   pr_branch=$(gh pr view "$pr_number" --json headRefName --jq .headRefName) || exit 1
+   pr_remote='verified-pr-remote-name'
+   git check-ref-format --branch "$pr_branch" >/dev/null || {
+     echo "Invalid PR branch metadata; refusing to push." >&2
+     exit 1
+   }
+   git remote | grep -Fxq -- "$pr_remote" || {
+     echo "PR remote is not configured; refusing to push." >&2
+     exit 1
+   }
+   test "$(git branch --show-current)" = "$pr_branch" || {
      echo "Not on the verified PR branch; refusing to push." >&2
      exit 1
    }
-   test "$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')" = "<pr-remote>/<pr-branch>" || {
+   test "$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')" = "$pr_remote/$pr_branch" || {
      echo "PR branch tracking does not match; refusing to push." >&2
      exit 1
    }
-   git push --force-with-lease <pr-remote> HEAD:<pr-branch>
+   git push --force-with-lease "$pr_remote" "HEAD:$pr_branch"
    ```
 
    Stop without pushing if either check fails or `HEAD` is detached.

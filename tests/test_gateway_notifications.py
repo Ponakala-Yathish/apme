@@ -466,6 +466,7 @@ class TestGenerateNotifications:
         original_should_write = notifications_module._should_write_scan_complete
         unlinked_writer_ready = asyncio.Event()
         both_writers_ready = asyncio.Event()
+        unlinked_writer_committed = asyncio.Event()
         writers_ready = 0
 
         async def synchronize_notification_insert(
@@ -480,6 +481,8 @@ class TestGenerateNotifications:
             if writers_ready == 2:
                 both_writers_ready.set()
             await both_writers_ready.wait()
+            if scan.project_id is not None:
+                await unlinked_writer_committed.wait()
             return await original_should_write(db, existing, scan)
 
         monkeypatch.setattr(
@@ -499,6 +502,7 @@ class TestGenerateNotifications:
         async def grpc_path_writer() -> None:
             async with get_session() as db:
                 await _generate_scan_notifications(db, scan_id)
+            unlinked_writer_committed.set()
 
         grpc_writer = asyncio.create_task(grpc_path_writer())
         try:
@@ -534,9 +538,10 @@ class TestGenerateNotifications:
             events = []
             while not queue.empty():
                 events.append(queue.get_nowait())
-            assert 1 <= len(events) <= 2
+            assert len(events) == 2
             assert all(event["type"] == "scan_complete" for event in events)
-            assert events[-1]["message"] == rows[0].message
+            assert events[0]["message"] == "/proj: 3 violations found"
+            assert events[1]["message"] == rows[0].message
         finally:
             if not grpc_writer.done():
                 grpc_writer.cancel()

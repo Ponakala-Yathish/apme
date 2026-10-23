@@ -222,6 +222,7 @@ export function useProjectWorkflow(
   const startScan = useCallback(async () => {
     invalidatePendingCancel();
     clearOp();
+    const scanGeneration = cancelGenerationRef.current;
     const colls = buildColls();
     let aiModel: string | undefined;
     try {
@@ -232,6 +233,7 @@ export function useProjectWorkflow(
       window.alert(err instanceof Error ? err.message : 'Could not verify an AI model.');
       return;
     }
+    if (scanGeneration !== cancelGenerationRef.current) return;
     openSession();
 
     const startOnce = (abandonWorkingSet: boolean) =>
@@ -292,12 +294,14 @@ export function useProjectWorkflow(
   ]);
 
   const beginRemediate = useCallback(async () => {
+    const generation = cancelGenerationRef.current;
     try {
       openSession();
       await beginRemediateOp();
       refreshOp();
     } catch (err) {
       if (err instanceof SessionExpiredError) {
+        if (generation !== cancelGenerationRef.current) return;
         const ok = window.confirm(
           'Assessment session expired. Start a full remediate (rescan)?',
         );
@@ -313,6 +317,7 @@ export function useProjectWorkflow(
             );
             return;
           }
+          if (generation !== cancelGenerationRef.current) return;
           openSession();
           try {
             await startOp('remediate', {
@@ -399,6 +404,7 @@ export function useProjectWorkflow(
     );
     if (!ok) return;
 
+    const generation = cancelGenerationRef.current;
     const colls = buildColls();
     let aiModel: string | undefined;
     try {
@@ -408,6 +414,7 @@ export function useProjectWorkflow(
       window.alert(err instanceof Error ? err.message : 'Could not verify an AI model.');
       return;
     }
+    if (generation !== cancelGenerationRef.current) return;
     invalidatePendingCancel();
     clearOp();
     setAttachOp(true);

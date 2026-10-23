@@ -42,11 +42,15 @@ vi.mock('../../packages/ui-workflow/src/hooks/useProjectOperationActions', () =>
   }),
 }));
 
-import { listAiModels } from '../../packages/ui-workflow/src/api/listAiModels';
+import {
+  listAiModels,
+  type AiModelInfo,
+} from '../../packages/ui-workflow/src/api/listAiModels';
 import { SessionExpiredError } from '../../packages/ui-workflow/src/hooks/useProjectOperationActions';
 import {
   resolveAiModel,
   useProjectWorkflow,
+  type UseProjectWorkflowOptions,
 } from '../../packages/ui-workflow/src/useProjectWorkflow';
 
 const api = {} as ApmeApiAdapter;
@@ -66,7 +70,9 @@ beforeEach(() => {
   vi.mocked(listAiModels).mockReset();
 });
 
-function renderWorkflow() {
+function renderWorkflow(
+  options: Pick<UseProjectWorkflowOptions, 'onOpenSession' | 'onDismissSession'> = {},
+) {
   return renderHook(() =>
     useProjectWorkflow('proj-1', {
       checkOptions: {
@@ -75,8 +81,18 @@ function renderWorkflow() {
         enableAi: true,
         autoApplyTier1: false,
       },
+      ...options,
     }),
   );
+}
+
+function deferModelCatalog() {
+  let resolve!: (models: AiModelInfo[]) => void;
+  const promise = new Promise<AiModelInfo[]>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  vi.mocked(listAiModels).mockReturnValue(promise);
+  return { resolve };
 }
 
 describe('resolveAiModel', () => {
@@ -158,5 +174,73 @@ describe('resolveAiModel', () => {
 
     expect(workflowMocks.start).not.toHaveBeenCalled();
     expect(alert).toHaveBeenCalledWith(expect.stringMatching(/No AI model is available/));
+  });
+
+  it('does not reopen a dismissed session when scan model lookup finishes', async () => {
+    const catalog = deferModelCatalog();
+    const onOpenSession = vi.fn();
+    const onDismissSession = vi.fn();
+    const { result } = renderWorkflow({ onOpenSession, onDismissSession });
+    let startPromise!: Promise<void>;
+
+    await act(async () => {
+      startPromise = result.current.startScan();
+      await Promise.resolve();
+    });
+    expect(listAiModels).toHaveBeenCalledOnce();
+    act(() => result.current.dismiss());
+    catalog.resolve([{ id: 'model-a', provider: 'provider', name: 'Model A' }]);
+    await act(async () => startPromise);
+
+    expect(workflowMocks.start).not.toHaveBeenCalled();
+    expect(onOpenSession).not.toHaveBeenCalled();
+    expect(onDismissSession).toHaveBeenCalledOnce();
+  });
+
+  it('does not restart expired-session remediation after dismissal during model lookup', async () => {
+    const catalog = deferModelCatalog();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onOpenSession = vi.fn();
+    const onDismissSession = vi.fn();
+    workflowMocks.beginRemediate.mockRejectedValueOnce(new SessionExpiredError('expired'));
+    const { result } = renderWorkflow({ onOpenSession, onDismissSession });
+    let remediatePromise!: Promise<void>;
+
+    await act(async () => {
+      remediatePromise = result.current.beginRemediate();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(listAiModels).toHaveBeenCalledOnce();
+    act(() => result.current.dismiss());
+    catalog.resolve([{ id: 'model-a', provider: 'provider', name: 'Model A' }]);
+    await act(async () => remediatePromise);
+
+    expect(workflowMocks.start).not.toHaveBeenCalled();
+    expect(onOpenSession).toHaveBeenCalledOnce();
+    expect(onDismissSession).toHaveBeenCalledOnce();
+  });
+
+  it('does not start over after dismissal during model lookup', async () => {
+    const catalog = deferModelCatalog();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onOpenSession = vi.fn();
+    const onDismissSession = vi.fn();
+    const { result } = renderWorkflow({ onOpenSession, onDismissSession });
+    let startOverPromise!: Promise<void>;
+
+    await act(async () => {
+      startOverPromise = result.current.startOver();
+      await Promise.resolve();
+    });
+    expect(listAiModels).toHaveBeenCalledOnce();
+    act(() => result.current.dismiss());
+    catalog.resolve([{ id: 'model-a', provider: 'provider', name: 'Model A' }]);
+    await act(async () => startOverPromise);
+
+    expect(workflowMocks.start).not.toHaveBeenCalled();
+    expect(onOpenSession).not.toHaveBeenCalled();
+    expect(onDismissSession).toHaveBeenCalledOnce();
   });
 });

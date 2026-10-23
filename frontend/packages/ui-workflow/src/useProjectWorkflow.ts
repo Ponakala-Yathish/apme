@@ -17,6 +17,14 @@ import {
   WorkingSetConflictError,
 } from './hooks/useProjectOperationActions';
 import type { AiEscalateTarget } from './components/AiEscalationPanel';
+import { AI_MODEL_STORAGE_KEY } from './shared/constants';
+
+function resolveAiModel(getAiModel?: () => string | undefined): string | undefined {
+  const configuredModel = getAiModel?.();
+  if (configuredModel) return configuredModel;
+  if (typeof localStorage === 'undefined') return undefined;
+  return localStorage.getItem(AI_MODEL_STORAGE_KEY) || undefined;
+}
 
 export interface ProjectWorkflowCheckOptions {
   ansibleVersion: string;
@@ -199,7 +207,7 @@ export function useProjectWorkflow(
         ansible_version: ansibleVersion || undefined,
         collection_specs: colls.length ? colls : undefined,
         enable_ai: enableAi,
-        ai_model: enableAi ? getAiModel?.() : undefined,
+        ai_model: enableAi ? resolveAiModel(getAiModel) : undefined,
         assess_pause: true,
         interactive: !autoApplyTier1,
         ...(abandonWorkingSet ? { abandon_working_set: true } : {}),
@@ -267,7 +275,7 @@ export function useProjectWorkflow(
             ansible_version: ansibleVersion || undefined,
             collection_specs: colls.length ? colls : undefined,
             enable_ai: enableAi,
-            ai_model: enableAi ? getAiModel?.() : undefined,
+            ai_model: enableAi ? resolveAiModel(getAiModel) : undefined,
             interactive: !autoApplyTier1,
             abandon_working_set: true,
           });
@@ -350,7 +358,7 @@ export function useProjectWorkflow(
         ansible_version: ansibleVersion || undefined,
         collection_specs: colls.length ? colls : undefined,
         enable_ai: enableAi,
-        ai_model: enableAi ? getAiModel?.() : undefined,
+        ai_model: enableAi ? resolveAiModel(getAiModel) : undefined,
         assess_pause: true,
         interactive: true,
         abandon_working_set: true,

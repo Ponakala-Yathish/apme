@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apme_gateway.app import create_app
 from apme_gateway.db import get_session
@@ -337,6 +339,214 @@ class TestGenerateNotifications:
         assert sec_after.project_id is None
         assert {r.type for r in rows} == {"scan_complete", "secrets_detected"}
         assert next(r for r in rows if r.type == "scan_complete").project_id == "proj-n4"
+
+    async def test_concurrent_grpc_and_operate_writers_emit_one_attributed_notification(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Concurrent gRPC and operate writers persist and broadcast one result.
+
+        Args:
+            monkeypatch: Test dependency patcher used to synchronize both writers.
+        """
+        from sqlalchemy import select
+
+        from apme_gateway import notifications as notifications_module
+        from apme_gateway.grpc_reporting.servicer import _generate_scan_notifications
+
+        project_id = "proj-notification-race"
+        scan_id = "scan-notification-race"
+        async with get_session() as db:
+            db.add(
+                Project(
+                    id=project_id,
+                    name="Attributed Project",
+                    repo_url="https://github.com/test/attributed.git",
+                    branch="main",
+                    created_at="2026-09-04T00:00:00Z",
+                    health_score=80,
+                )
+            )
+            await db.commit()
+        await _seed_session_and_scan(scan_id=scan_id, session_id="sess-notification-race", project_id=project_id)
+
+        original_should_write = notifications_module._should_write_scan_complete
+        writers_ready = 0
+        both_writers_ready = asyncio.Event()
+
+        async def synchronize_notification_insert(
+            db: AsyncSession,
+            existing: Notification | None,
+            scan: Scan,
+        ) -> bool:
+            nonlocal writers_ready
+            writers_ready += 1
+            if writers_ready == 2:
+                both_writers_ready.set()
+            await both_writers_ready.wait()
+            return await original_should_write(db, existing, scan)
+
+        monkeypatch.setattr(
+            notifications_module,
+            "_should_write_scan_complete",
+            synchronize_notification_insert,
+        )
+        queue = subscribe()
+
+        async def operate_path_writer() -> None:
+            async with get_session() as db:
+                scan = (await db.execute(select(Scan).where(Scan.scan_id == scan_id))).scalar_one()
+                payloads = await generate_notifications(db, scan, [])
+                await db.commit()
+                broadcast_notifications(payloads)
+
+        async def grpc_path_writer() -> None:
+            async with get_session() as db:
+                await _generate_scan_notifications(db, scan_id)
+
+        try:
+            await asyncio.gather(grpc_path_writer(), operate_path_writer())
+            async with get_session() as db:
+                rows = list(
+                    (
+                        await db.execute(
+                            select(Notification).where(
+                                Notification.scan_id == scan_id,
+                                Notification.type == "scan_complete",
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+            assert len(rows) == 1
+            assert rows[0].project_id == project_id
+            assert rows[0].message == "Attributed Project: 3 violations found"
+            assert queue.get_nowait()["message"] == rows[0].message
+            assert queue.empty()
+        finally:
+            unsubscribe(queue)
+
+    async def test_unlinked_grpc_notification_is_replaced_after_scan_link(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """An unlinked gRPC scan is replaced by the linked operate notification.
+
+        Args:
+            monkeypatch: Test dependency patcher used to synchronize both writers.
+        """
+        from sqlalchemy import select
+
+        from apme_gateway import notifications as notifications_module
+        from apme_gateway.db import queries as q
+        from apme_gateway.grpc_reporting.servicer import _generate_scan_notifications
+
+        project_id = "proj-notification-race-linked"
+        scan_id = "scan-notification-race-linked"
+        async with get_session() as db:
+            db.add(
+                Project(
+                    id=project_id,
+                    name="Attributed Project",
+                    repo_url="https://github.com/test/attributed.git",
+                    branch="main",
+                    created_at="2026-09-04T00:00:00Z",
+                    health_score=80,
+                )
+            )
+            await db.commit()
+        await _seed_session_and_scan(
+            scan_id=scan_id,
+            session_id="sess-notification-race-linked",
+            project_id=None,
+        )
+
+        original_should_write = notifications_module._should_write_scan_complete
+        unlinked_writer_ready = asyncio.Event()
+        both_writers_ready = asyncio.Event()
+        unlinked_writer_committed = asyncio.Event()
+        writers_ready = 0
+
+        async def synchronize_notification_insert(
+            db: AsyncSession,
+            existing: Notification | None,
+            scan: Scan,
+        ) -> bool:
+            nonlocal writers_ready
+            if scan.project_id is None:
+                unlinked_writer_ready.set()
+            writers_ready += 1
+            if writers_ready == 2:
+                both_writers_ready.set()
+            await both_writers_ready.wait()
+            if scan.project_id is not None:
+                await unlinked_writer_committed.wait()
+            return await original_should_write(db, existing, scan)
+
+        monkeypatch.setattr(
+            notifications_module,
+            "_should_write_scan_complete",
+            synchronize_notification_insert,
+        )
+        queue = subscribe()
+
+        async def operate_path_writer() -> None:
+            async with get_session() as db:
+                scan = (await db.execute(select(Scan).where(Scan.scan_id == scan_id))).scalar_one()
+                payloads = await generate_notifications(db, scan, [])
+                await db.commit()
+                broadcast_notifications(payloads)
+
+        async def grpc_path_writer() -> None:
+            async with get_session() as db:
+                await _generate_scan_notifications(db, scan_id)
+            unlinked_writer_committed.set()
+
+        grpc_writer = asyncio.create_task(grpc_path_writer())
+        try:
+            await unlinked_writer_ready.wait()
+            async with get_session() as db:
+                assert await q.link_scan_to_project(
+                    db,
+                    scan_id,
+                    project_id,
+                    trigger="ui",
+                    scan_type="check",
+                    source="gateway",
+                )
+
+            await asyncio.gather(grpc_writer, operate_path_writer())
+            async with get_session() as db:
+                rows = list(
+                    (
+                        await db.execute(
+                            select(Notification).where(
+                                Notification.scan_id == scan_id,
+                                Notification.type == "scan_complete",
+                            )
+                        )
+                    )
+                    .scalars()
+                    .all()
+                )
+
+            assert len(rows) == 1
+            assert rows[0].project_id == project_id
+            assert rows[0].message == "Attributed Project: 3 violations found"
+            events = []
+            while not queue.empty():
+                events.append(queue.get_nowait())
+            assert len(events) == 2
+            assert all(event["type"] == "scan_complete" for event in events)
+            assert events[0]["message"] == "/proj: 3 violations found"
+            assert events[1]["message"] == rows[0].message
+        finally:
+            if not grpc_writer.done():
+                grpc_writer.cancel()
+                await asyncio.gather(grpc_writer, return_exceptions=True)
+            unsubscribe(queue)
 
 
 # ---------------------------------------------------------------------------

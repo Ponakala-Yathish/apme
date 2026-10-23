@@ -9,7 +9,7 @@ Python package metadata.
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, LargeBinary, Text, UniqueConstraint
+from sqlalchemy import Boolean, Float, ForeignKey, Index, Integer, LargeBinary, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -640,6 +640,7 @@ class Notification(Base):
     """
 
     __tablename__ = "notifications"
+    __table_args__ = (Index("uq_notifications_scan_id_type", "scan_id", "type", unique=True),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     type: Mapped[str] = mapped_column(Text, nullable=False)

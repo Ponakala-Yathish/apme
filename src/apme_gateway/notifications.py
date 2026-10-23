@@ -252,7 +252,8 @@ async def generate_notifications(
             scan_id=scan.scan_id,
             link=f"/activity/{scan.scan_id}",
         )
-        payloads.append(_notif_to_payload(notif))
+        if notif is not None:
+            payloads.append(_notif_to_payload(notif))
 
     # -- Secrets detected (Gitleaks SEC:* violations) -----------------------
 
@@ -277,7 +278,8 @@ async def generate_notifications(
             scan_id=scan.scan_id,
             link=f"/activity/{scan.scan_id}",
         )
-        payloads.append(_notif_to_payload(notif_sec))
+        if notif_sec is not None:
+            payloads.append(_notif_to_payload(notif_sec))
 
     # -- Health score drop --------------------------------------------------
 
@@ -297,7 +299,8 @@ async def generate_notifications(
             scan_id=scan.scan_id,
             link=f"/projects/{scan.project_id}" if scan.project_id else f"/activity/{scan.scan_id}",
         )
-        payloads.append(_notif_to_payload(notif_health))
+        if notif_health is not None:
+            payloads.append(_notif_to_payload(notif_health))
 
     return payloads
 

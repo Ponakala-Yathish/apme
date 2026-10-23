@@ -48,6 +48,7 @@ async def init_db(database_url: str) -> None:
                 await conn.run_sync(_migrate_scans_table)
                 await conn.run_sync(_migrate_projects_table)
                 await conn.run_sync(_migrate_galaxy_servers_table)
+                await conn.run_sync(_migrate_notifications_table)
         except (OperationalError, OSError):
             if engine is not None:
                 await engine.dispose()
@@ -93,6 +94,7 @@ async def reset_db() -> None:
         await conn.run_sync(_migrate_scans_table)
         await conn.run_sync(_migrate_projects_table)
         await conn.run_sync(_migrate_galaxy_servers_table)
+        await conn.run_sync(_migrate_notifications_table)
 
 
 def _migrate_galaxy_servers_table(conn: Connection) -> None:
@@ -106,6 +108,51 @@ def _migrate_galaxy_servers_table(conn: Connection) -> None:
         columns = {column["name"] for column in inspector.get_columns("galaxy_servers")}
         if "validate_certs" not in columns:
             conn.execute(text("ALTER TABLE galaxy_servers ADD COLUMN validate_certs BOOLEAN DEFAULT NULL"))
+
+
+def _migrate_notifications_table(conn: Connection) -> None:
+    """Deduplicate scan notifications and enforce one row per scan and type.
+
+    Existing duplicates keep the most recently created attributed row when
+    available; otherwise the newest row is retained. Rows without a scan id
+    remain unrestricted.
+
+    Args:
+        conn: Synchronous connection used during database initialization.
+    """
+    if not inspect(conn).has_table("notifications"):
+        return
+
+    index_name = "uq_notifications_scan_id_type"
+    existing_indexes = inspect(conn).get_indexes("notifications")
+    if any(
+        index["name"] == index_name and index["unique"] and index["column_names"] == ["scan_id", "type"]
+        for index in existing_indexes
+    ):
+        return
+
+    conn.execute(
+        text(
+            """
+            DELETE FROM notifications
+            WHERE id IN (
+                SELECT id FROM (
+                    SELECT id, ROW_NUMBER() OVER (
+                        PARTITION BY scan_id, type
+                        ORDER BY CASE WHEN project_id IS NOT NULL THEN 0 ELSE 1 END,
+                                 created_at DESC, id DESC
+                    ) AS duplicate_rank
+                    FROM notifications
+                    WHERE scan_id IS NOT NULL
+                ) ranked
+                WHERE duplicate_rank > 1
+            )
+            """
+        )
+    )
+    conn.execute(
+        text("CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_scan_id_type ON notifications (scan_id, type)")
+    )
 
 
 def get_engine() -> AsyncEngine:

@@ -166,6 +166,7 @@ export function useNotificationStream(): void {
         const restIds = new Set(resp.items.map((n) => n.id));
         const merged = [...resp.items];
         const pending = buffer.splice(0);
+        const pendingIds = new Set(pending.map((item) => String(item.id)));
         for (const buffered of pending) {
           upsertNotification(merged, buffered);
         }
@@ -180,7 +181,9 @@ export function useNotificationStream(): void {
               base[key] = group;
             } else {
               for (const n of group.notifications) {
-                  upsertNotification(base[key].notifications, n);
+                  if (!pendingIds.has(n.id)) {
+                    upsertNotification(base[key].notifications, n);
+                  }
               }
             }
           }

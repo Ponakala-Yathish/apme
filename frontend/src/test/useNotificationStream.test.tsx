@@ -148,6 +148,24 @@ describe('useNotificationStream same-ID updates', () => {
   });
 
   it('applies buffered SSE updates over a REST item with the same ID', async () => {
+    const stale = notification(1, '/proj: stale');
+    usePageNotifications.setState({
+      notificationGroups: {
+        Scans: {
+          title: 'Scans',
+          notifications: [
+            {
+              id: String(stale.id),
+              title: stale.title,
+              description: stale.message,
+              timestamp: stale.created_at,
+              variant: stale.variant,
+            },
+          ],
+        },
+      },
+    });
+
     let resolveRest!: (value: PaginatedResponse<NotificationItem>) => void;
     const restResponse = new Promise<PaginatedResponse<NotificationItem>>((resolve) => {
       resolveRest = resolve;
@@ -162,7 +180,7 @@ describe('useNotificationStream same-ID updates', () => {
     });
 
     await act(async () => {
-      resolveRest(response([notification(1, '/proj: stale')]));
+      resolveRest(response([stale]));
       await restResponse;
     });
 

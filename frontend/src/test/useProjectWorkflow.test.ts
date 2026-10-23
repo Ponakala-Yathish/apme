@@ -88,11 +88,13 @@ function renderWorkflow(
 
 function deferModelCatalog() {
   let resolve!: (models: AiModelInfo[]) => void;
-  const promise = new Promise<AiModelInfo[]>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<AiModelInfo[]>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
   vi.mocked(listAiModels).mockReturnValue(promise);
-  return { resolve };
+  return { resolve, reject };
 }
 
 describe('resolveAiModel', () => {
@@ -258,5 +260,71 @@ describe('resolveAiModel', () => {
     expect(workflowMocks.start).not.toHaveBeenCalled();
     expect(onOpenSession).not.toHaveBeenCalled();
     expect(onDismissSession).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a scan catalog error after dismissal', async () => {
+    const catalog = deferModelCatalog();
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const { result } = renderWorkflow();
+    let startPromise!: Promise<void>;
+
+    await act(async () => {
+      startPromise = result.current.startScan();
+      await Promise.resolve();
+    });
+    expect(listAiModels).toHaveBeenCalledOnce();
+    act(() => result.current.dismiss());
+    catalog.reject(new Error('catalog unavailable'));
+    await act(async () => startPromise);
+
+    expect(console.error).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+    expect(workflowMocks.refresh).not.toHaveBeenCalled();
+    expect(workflowMocks.start).not.toHaveBeenCalled();
+  });
+
+  it('ignores an expired-session catalog error after dismissal', async () => {
+    const catalog = deferModelCatalog();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    workflowMocks.beginRemediate.mockRejectedValueOnce(new SessionExpiredError('expired'));
+    const { result } = renderWorkflow();
+    let remediatePromise!: Promise<void>;
+
+    await act(async () => {
+      remediatePromise = result.current.beginRemediate();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(listAiModels).toHaveBeenCalledOnce();
+    act(() => result.current.dismiss());
+    catalog.reject(new Error('catalog unavailable'));
+    await act(async () => remediatePromise);
+
+    expect(console.error).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+    expect(workflowMocks.start).not.toHaveBeenCalled();
+  });
+
+  it('ignores a start-over catalog error after dismissal', async () => {
+    const catalog = deferModelCatalog();
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const { result } = renderWorkflow();
+    let startOverPromise!: Promise<void>;
+
+    await act(async () => {
+      startOverPromise = result.current.startOver();
+      await Promise.resolve();
+    });
+    expect(listAiModels).toHaveBeenCalledOnce();
+    act(() => result.current.dismiss());
+    catalog.reject(new Error('catalog unavailable'));
+    await act(async () => startOverPromise);
+
+    expect(console.error).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+    expect(workflowMocks.start).not.toHaveBeenCalled();
   });
 });

@@ -228,6 +228,7 @@ export function useProjectWorkflow(
     try {
       aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
     } catch (err) {
+      if (scanGeneration !== cancelGenerationRef.current) return;
       console.error('Could not resolve AI model:', err);
       refreshOp();
       window.alert(err instanceof Error ? err.message : 'Could not verify an AI model.');
@@ -311,6 +312,7 @@ export function useProjectWorkflow(
           try {
             aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
           } catch (startErr) {
+            if (generation !== cancelGenerationRef.current) return;
             console.error('Could not resolve AI model:', startErr);
             window.alert(
               startErr instanceof Error ? startErr.message : 'Could not verify an AI model.',
@@ -410,6 +412,7 @@ export function useProjectWorkflow(
     try {
       aiModel = enableAi ? await resolveAiModel(api, getAiModel) : undefined;
     } catch (err) {
+      if (generation !== cancelGenerationRef.current) return;
       console.error('Could not resolve AI model:', err);
       window.alert(err instanceof Error ? err.message : 'Could not verify an AI model.');
       return;

@@ -6,9 +6,11 @@ import logging
 import math
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any, NamedTuple, cast
+from typing import Any, NamedTuple, cast, overload
 
 from sqlalchemy import ColumnElement, Select, case, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -2283,6 +2285,34 @@ async def project_graph(db: AsyncSession, project_id: str) -> ScanGraph | None:
 # ---------------------------------------------------------------------------
 
 
+@overload
+async def insert_notification(
+    db: AsyncSession,
+    *,
+    type: str,
+    title: str,
+    message: str = "",
+    variant: str = "info",
+    project_id: str | None = None,
+    scan_id: None = None,
+    link: str = "",
+) -> Notification: ...
+
+
+@overload
+async def insert_notification(
+    db: AsyncSession,
+    *,
+    type: str,
+    title: str,
+    message: str = "",
+    variant: str = "info",
+    project_id: str | None = None,
+    scan_id: str,
+    link: str = "",
+) -> Notification | None: ...
+
+
 async def insert_notification(
     db: AsyncSession,
     *,
@@ -2293,8 +2323,13 @@ async def insert_notification(
     project_id: str | None = None,
     scan_id: str | None = None,
     link: str = "",
-) -> Notification:
-    """Create a new notification row.
+) -> Notification | None:
+    """Insert a notification once per scan and type.
+
+    For scan-associated notifications, PostgreSQL and SQLite use the unique
+    ``(scan_id, type)`` index to make concurrent inserts idempotent. A ``None``
+    result means a matching notification already exists or won a concurrent
+    insert.
 
     Args:
         db: Active async database session.
@@ -2307,20 +2342,54 @@ async def insert_notification(
         link: Client-side route for click-through.
 
     Returns:
-        The newly created Notification row.
+        The new row, or ``None`` when another transaction already inserted it.
+
+    Raises:
+        RuntimeError: If an inserted notification cannot be loaded.
     """
     now = datetime.now(tz=UTC).isoformat()
-    notif = Notification(
-        type=type,
-        title=title,
-        message=message,
-        variant=variant,
-        project_id=project_id,
-        scan_id=scan_id,
-        link=link,
-        created_at=now,
-        read=False,
-    )
+    values = {
+        "type": type,
+        "title": title,
+        "message": message,
+        "variant": variant,
+        "project_id": project_id,
+        "scan_id": scan_id,
+        "link": link,
+        "created_at": now,
+        "read": False,
+    }
+
+    dialect_name = db.get_bind().dialect.name
+    if scan_id is not None and dialect_name in {"postgresql", "sqlite"}:
+        insert_stmt = postgresql_insert(Notification) if dialect_name == "postgresql" else sqlite_insert(Notification)
+        statement = insert_stmt.values(**values)
+        if type == "scan_complete" and project_id is not None:
+            statement = statement.on_conflict_do_update(
+                index_elements=[Notification.scan_id, Notification.type],
+                set_={
+                    "title": statement.excluded.title,
+                    "message": statement.excluded.message,
+                    "variant": statement.excluded.variant,
+                    "project_id": statement.excluded.project_id,
+                    "link": statement.excluded.link,
+                    "created_at": statement.excluded.created_at,
+                    "read": False,
+                },
+                where=Notification.project_id.is_(None),
+            )
+        else:
+            statement = statement.on_conflict_do_nothing(index_elements=[Notification.scan_id, Notification.type])
+        result = await db.execute(statement.returning(Notification.id))
+        notification_id = result.scalar_one_or_none()
+        if notification_id is None:
+            return None
+        notification = cast("Notification | None", await db.get(Notification, notification_id))
+        if notification is None:
+            raise RuntimeError("Inserted notification could not be loaded")
+        return notification
+
+    notif = Notification(**values)
     db.add(notif)
     await db.flush()
     return notif

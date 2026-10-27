@@ -68,6 +68,11 @@ message ProjectManifest {
 }
 ```
 
+Galaxy collections are also installed as internal Python distributions named
+`ansible-collection-*` inside the session venv. They are represented by
+`CollectionRef` entries and excluded from `python_packages` so the same
+collection does not appear in both manifest categories.
+
 **Note on roles:** Role inventory is deferred until the ContentGraph (ADR-044)
 lands. The ContentGraph models roles as first-class graph nodes with metadata,
 parent-child relationships, and quality attributes. Adding a flat `RoleRef` to
@@ -264,3 +269,4 @@ The proxy already resolves transitive dependencies. The engine reads the install
 | 2026-03-30 | Architecture review | Extended manifest with license/supplier; SBOM as Gateway view; roles deferred to ADR-044; 3-PR implementation plan |
 | 2026-09-22 | Agent | Status → Implemented — manifest persistence, dependencies/SBOM REST, and `apme sbom` shipped; role inventory remains deferred to ADR-044 |
 | 2026-09-22 | Agent | Status → Partially Implemented — project-scoped manifest/dependencies/SBOM shipped; global `GET /api/v1/collections`, `GET /api/v1/python-packages`, and collection-to-project endpoints remain |
+| 2026-10-27 | Daniel Danielsson | Excluded Galaxy collection wrapper distributions from Python package manifest entries |

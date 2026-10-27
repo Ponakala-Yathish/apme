@@ -679,11 +679,27 @@ def install_collections_incremental(
     return _install_collections_via_proxy(pip_python, collection_specs, proxy, use_uv)
 
 
+def _is_galaxy_collection_distribution(name: str) -> bool:
+    """Return whether a Python distribution is a Galaxy collection wrapper.
+
+    Args:
+        name: Distribution name from its ``METADATA`` file.
+
+    Returns:
+        True for the internal ``ansible-collection-*`` package names used
+        to install collections through the Galaxy proxy.
+    """
+    normalized = re.sub(r"[-_.]+", "-", name).lower()
+    return normalized.startswith("ansible-collection-")
+
+
 def list_installed_packages(venv_dir: Path) -> list[tuple[str, str, str, str]]:
     """List Python packages installed in a session venv.
 
     Uses ``importlib.metadata`` via the venv's Python to retrieve name,
-    version, license, and author in a single subprocess call.
+    version, license, and author in a single subprocess call. Galaxy
+    collection wrapper distributions are excluded because collections are
+    reported separately by :func:`list_installed_collections`.
 
     Args:
         venv_dir: Root of the virtual environment.
@@ -732,6 +748,7 @@ def list_installed_packages(venv_dir: Path) -> list[tuple[str, str, str, str]]:
         (e["name"], e.get("version", ""), e.get("license", ""), e.get("supplier", ""))
         for e in entries
         if isinstance(e, dict) and "name" in e
+        if isinstance(e["name"], str) and not _is_galaxy_collection_distribution(e["name"])
     ]
 
 

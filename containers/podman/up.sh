@@ -891,7 +891,7 @@ if yaml.count(marker) != 1:
     print("ERROR: expected one Abbenay container in pod YAML", file=sys.stderr)
     sys.exit(1)
 yaml = yaml.replace(marker, replacement, 1)
-args_marker = '''      args:
+args_marker = """      args:
         - "web"
         - "--host"
         - "0.0.0.0"
@@ -901,8 +901,8 @@ args_marker = '''      args:
         - "127.0.0.1"
         - "--grpc-port"
         - "50057"
-'''
-args_replacement = '''      command:
+"""
+args_replacement = """      command:
         - "/bin/sh"
         - "-c"
       args:
@@ -935,7 +935,7 @@ args_replacement = '''      command:
         - "127.0.0.1"
         - "--grpc-port"
         - "50057"
-'''
+"""
 if yaml.count(args_marker) != 1:
     print("ERROR: expected one Abbenay web argument block in pod YAML", file=sys.stderr)
     sys.exit(1)

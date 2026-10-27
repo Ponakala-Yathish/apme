@@ -620,7 +620,10 @@ abbenay_vol_marker = (
 )
 gateway_env_marker = '        - name: APME_FEEDBACK_GITHUB_TOKEN'
 gateway_vol_marker = '      volumeMounts:\n        - name: abbenay-run'
+# Structural presence guard only — not used as a replace anchor.
+# Ensures the galaxy-proxy container block is in the YAML before injection.
 galaxy_marker = '    - name: galaxy-proxy\n      image: apme-galaxy-proxy:latest'
+galaxy_env_marker = '        - name: APME_PROXY_REQUIRE_GATEWAY_CONFIG'
 galaxy_vol_marker = '      volumeMounts:\n        - name: proxy-cache'
 if (
     abbenay_env_marker not in yaml
@@ -628,6 +631,7 @@ if (
     or gateway_env_marker not in yaml
     or gateway_vol_marker not in yaml
     or galaxy_marker not in yaml
+    or galaxy_env_marker not in yaml
     or galaxy_vol_marker not in yaml
 ):
     print('ERROR: pod.yaml markers not found; CA bundle injection failed', file=sys.stderr)
@@ -666,12 +670,10 @@ yaml = yaml.replace(
     '          mountPath: ' + mount_yaml + '\n'
     '          readOnly: true\n'
     '        - name: abbenay-run')
-# Galaxy Proxy: add env section + CA env vars
+# Galaxy Proxy: prepend CA env vars into the existing env block
 yaml = yaml.replace(
-    galaxy_marker,
+    galaxy_env_marker,
     (
-        galaxy_marker + '\n'
-        '      env:\n'
         '        - name: SSL_CERT_FILE\n'
         '          value: ' + mount_yaml + '\n'
         '        - name: REQUESTS_CA_BUNDLE\n'
@@ -679,7 +681,8 @@ yaml = yaml.replace(
         '        - name: CURL_CA_BUNDLE\n'
         '          value: ' + mount_yaml + '\n'
         '        - name: GIT_SSL_CAINFO\n'
-        '          value: ' + mount_yaml
+        '          value: ' + mount_yaml + '\n'
+        + galaxy_env_marker
     ),
 )
 # Galaxy Proxy: add CA volume mount

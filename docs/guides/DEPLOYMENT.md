@@ -292,11 +292,12 @@ files) and never chowns the git checkout. The config defines LLM providers and
 models. Deploy-time API keys are injected from environment variables — never
 committed to the config file. Runtime file-store keys (Abbenay ≥ v2026.8.6,
 `secretStore: file`) are written to `secrets.json` on this same cache
-directory (treat as secret material). On macOS, virtiofs cannot give
-container UID 1001 access to `secrets.json` without world-opening it; file
-store is unsupported there until [#562](https://github.com/ansible/apme/issues/562)
-(use env or memory). `tox -e down` leaves that file in
-place; `tox -e wipe` preserves it. To add providers or models, edit the user
+directory (treat as secret material). On macOS, `up.sh` requires rootless
+Podman and runs only Abbenay as UID 0 so it maps to the virtiofs owner. Its
+Unix socket remains accessible to Engine and Gateway through group 0; gRPC
+consumer-token authentication stays enabled. The config and secret files
+remain owner-only. `tox -e down` leaves that file in place; `tox -e wipe`
+preserves it. To add providers or models, edit the user
 config `config.yaml` or POST via the Gateway admin proxy
 (`/api/v1/ai/provider/{id}/configure`); writes survive Abbenay restarts.
 
@@ -307,7 +308,7 @@ token on that localhost bind. The operator deployment keeps Abbenay HTTP/gRPC on
 loopback within the pod (ADR-070). gRPC for Engine/Gateway remains the shared
 Unix socket.
 
-The Abbenay daemon still binds leftover gRPC TCP on `127.0.0.1:50057`. Engine AI RPCs, Gateway `/health`, and health probes use `APME_ABBENAY_ADDR=unix:///tmp/abbenay-run/abbenay/daemon.sock` (shared `emptyDir`) because `abbenay-client` ≥ 2026.8.7 rejects consumer tokens on plaintext TCP.
+The Abbenay daemon still binds gRPC TCP on `127.0.0.1:50057`. Engine AI RPCs, Gateway `/health`, and health probes use `APME_ABBENAY_ADDR=unix:///tmp/abbenay-run/abbenay/daemon.sock` (shared `emptyDir`) because `abbenay-client` ≥ 2026.8.7 rejects consumer tokens on plaintext TCP. On macOS, the startup wrapper exposes this socket to the Engine and Gateway container group while retaining token authentication.
 
 #### UI
 

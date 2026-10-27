@@ -281,16 +281,10 @@ _ensure_abbenay_config_access() {
       fi
     fi
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      # macOS: setfacl unavailable; virtiofs presents the host user as owner
-      # and container UID 1001 as other. config.yaml uses 0644 so UID 1001
-      # can read the seed. Do not chmod secrets.json: 0644 is other-readable
-      # and still not other-writable, so file-store persist cannot work.
-      # Named volume / keep-id: #562.
-      chmod 755 "$path"
-      [[ -f "$path/config.yaml" ]] && chmod 644 "$path/config.yaml"
-      if [[ -f "$path/secrets.json" ]]; then
-        echo "NOTE: Abbenay file secret store is unsupported on macOS virtiofs hostPath until #562. Leave secrets.json owner-only; use secret_store: env or memory. See https://github.com/ansible/apme/issues/562"
-      fi
+      # On macOS, pod.yaml runs Abbenay as container UID 0. Rootless Podman
+      # maps that UID to the Podman Machine user, which owns this virtiofs
+      # mount. Keep the private 0700/0600 modes set by the caller; granting
+      # access to "other" would expose credentials to other host users.
       return 0
     fi
     if ! command -v setfacl >/dev/null 2>&1; then
@@ -880,6 +874,80 @@ print(yaml.replace(old, new, 1), end="")
   exit 1
 fi
 echo "Abbenay config hostPath: $ABBENAY_CONFIG_DIR (seed sources remain under containers/abbenay/)"
+# On macOS, virtiofs exposes host ownership to the Podman Machine user. Under
+# rootless Podman, container UID 0 maps to that user; run only Abbenay as UID 0
+# so it can use owner-only config and secrets without changing the pod's
+# user-namespace mapping or the ownership of other named volumes. Keep its Unix
+# socket available to Engine and Gateway through their shared container group.
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if ! _podman_is_rootless; then
+    echo "ERROR: macOS Abbenay hostPath access requires rootless Podman" >&2
+    exit 1
+  fi
+  if ! POD_YAML=$(python3 -c '
+import sys
+
+yaml = sys.stdin.read()
+marker = "    - name: abbenay\n"
+replacement = marker + "      securityContext:\n        runAsUser: 0\n        runAsGroup: 0\n"
+if yaml.count(marker) != 1:
+    print("ERROR: expected one Abbenay container in pod YAML", file=sys.stderr)
+    sys.exit(1)
+yaml = yaml.replace(marker, replacement, 1)
+args_marker = """      args:
+        - "web"
+        - "--host"
+        - "0.0.0.0"
+        - "--port"
+        - "8787"
+        - "--grpc-host"
+        - "127.0.0.1"
+        - "--grpc-port"
+        - "50057"
+"""
+args_replacement = """      command:
+        - "/bin/sh"
+        - "-c"
+      args:
+        - |
+          runtime_dir=/tmp/abbenay-run/abbenay
+          socket_path="$runtime_dir/daemon.sock"
+          mkdir -p "$runtime_dir"
+          chgrp 0 "$runtime_dir"
+          chmod 0750 "$runtime_dir"
+          (
+            i=0
+            while [ "$i" -lt 300 ]; do
+              if [ -S "$socket_path" ]; then
+                chmod 0660 "$socket_path"
+                exit
+              fi
+              sleep 0.1
+              i=$((i + 1))
+            done
+          ) &
+          umask 0007
+          exec ./abbenay "$@"
+        - "apme-abbenay"
+        - "web"
+        - "--host"
+        - "0.0.0.0"
+        - "--port"
+        - "8787"
+        - "--grpc-host"
+        - "127.0.0.1"
+        - "--grpc-port"
+        - "50057"
+"""
+if yaml.count(args_marker) != 1:
+    print("ERROR: expected one Abbenay web argument block in pod YAML", file=sys.stderr)
+    sys.exit(1)
+print(yaml.replace(args_marker, args_replacement, 1), end="")
+' <<< "$POD_YAML"); then
+    echo "ERROR: could not configure Abbenay config and socket access for macOS" >&2
+    exit 1
+  fi
+fi
 _relabel_host_path_for_podman "$ROOT/containers/otel-collector/config.yaml"
 if [[ -n "$ABBENAY_CA_BUNDLE" ]]; then
   _relabel_host_path_for_podman "$ABBENAY_CA_BUNDLE"

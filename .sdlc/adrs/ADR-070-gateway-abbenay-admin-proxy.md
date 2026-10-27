@@ -149,20 +149,22 @@ Abbenay. Gateway reverse-proxies the secrets API and does **not** persist
 provider keys. Durable keys in containers use Abbenay's filesystem store
 (`secretStore: "file"`, Abbenay ≥ v2026.8.6), which writes
 `<configDir>/secrets.json` (mode `0600` as written by Abbenay) on the same
-writable volume as `config.yaml`. On macOS Podman Machine, virtiofs cannot
-give container UID 1001 access without world-opening the file; `up.sh` does
-not chmod `secrets.json`. File store on Darwin hostPath is unsupported until
-[#562](https://github.com/ansible/apme/issues/562) (named volume or keep-id);
-use env or memory. File-store keys survive a restart
+writable volume as `config.yaml`. On macOS Podman Machine, `up.sh` requires
+rootless Podman and runs only the Abbenay container as UID 0 and GID 0,
+which maps UID 0 to the virtiofs owner. Its startup wrapper sets the shared
+runtime directory to group 0 and the Unix socket to mode `0660`, preserving
+the token-authenticated gRPC connection for Engine and Gateway. The config
+directory and secrets remain owner-only (`0700`/`0600`), without granting
+access to other host users or changing other containers' user namespace.
+File-store keys survive a restart
 **only** when that volume is durable:
 
 - **Operator**: optional PVC for Abbenay config. Default is
   `emptyDir` — file-store keys then last for the **pod** lifetime only
   (survive Abbenay container restart; lost on pod recycle, drain, and upgrade).
-- **Podman (Linux)**: RW host cache (survives `tox -e down`; `tox -e wipe`
-  removes `secrets.json`). **macOS**: file store on the virtiofs hostPath is
-  unsupported until [#562](https://github.com/ansible/apme/issues/562); use
-  env or memory.
+- **Podman (Linux)**: RW host cache; `tox -e down` and `tox -e wipe` both
+  preserve the Abbenay config. **macOS**: RW config hostPath; `tox -e down`
+  and `tox -e wipe` both preserve the config.
 
 The process-lifetime `memory` store remains available. Deploy-time Kubernetes
 Secrets / env (`secret_store: env`) are unchanged. DELETE must pass
@@ -345,3 +347,4 @@ Gateway stays a proxy. Default operator `emptyDir` is still ephemeral — enable
 | 2026-08-13 | bthornto | Amended allowlist: added `GET/POST /secrets`, `DELETE /secrets/{key}` for Abbenay ≥ v2026.8.5 memory secret store |
 | 2026-08-14 | bthornto | §7 secrets remain Abbenay SoT: file store (`secretStore: "file"`, ≥ v2026.8.6) on a durable config volume (Helm PVC / Podman cache); Gateway stays proxy-only (rejects Gateway DB SoT, #560) |
 | 2026-09-22 | Agent | Status → Implemented — Gateway Abbenay admin proxy, Helm/Podman wiring, and config durability shipped; portal settings UI remains deferred |
+| 2026-10-27 | Codex | §7: macOS Podman keeps file-store permissions private (#562) |

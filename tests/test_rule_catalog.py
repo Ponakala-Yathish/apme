@@ -90,6 +90,17 @@ def test_collect_all_rules_registers_disabled_by_default_audit_rules() -> None:
         assert by_id[rule_id].source == "native"
 
 
+def test_collect_all_rules_registers_delegated_policy_aliases() -> None:
+    """Delegated P001-P004 aliases remain visible and disabled in the catalog."""
+    delegated_ids = {"P001", "P002", "P003", "P004"}
+    by_id = {rule.rule_id: rule for rule in collect_all_rules() if rule.rule_id in delegated_ids}
+
+    assert delegated_ids <= by_id.keys()
+    for rule_id in sorted(delegated_ids):
+        assert by_id[rule_id].source == "ansible"
+        assert by_id[rule_id].enabled is False
+
+
 def test_collect_gitleaks_rules_sec_placeholder_critical() -> None:
     """Gitleaks contributes a single ``SEC:*`` placeholder with critical severity.
 

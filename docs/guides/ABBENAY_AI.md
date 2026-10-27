@@ -90,10 +90,13 @@ or Kubernetes Secrets / env vars (`secret_store: env`).
 For durable API keys in containers (no system keychain), Abbenay persists
 secrets to `<configDir>/secrets.json` on the **same writable volume** as
 `config.yaml`. Abbenay writes the file mode `0600`. On macOS Podman Machine,
-virtiofs cannot grant container UID 1001 read/write to that file without
-world-opening it; `up.sh` does **not** chmod `secrets.json`. Use
-`secret_store: env` or `memory` on Darwin until
-[#562](https://github.com/ansible/apme/issues/562) (named volume or keep-id).
+`up.sh` runs only the Abbenay container as UID 0 and GID 0. Rootless Podman
+maps that UID to the virtiofs owner, so the file store can use owner-only
+permissions without exposing secrets to other host users or changing other
+containers' user namespace. The startup wrapper makes the Abbenay runtime
+directory traversable by group 0 and the Unix socket group-readable and
+writable so Engine and Gateway can use the existing token-authenticated gRPC
+connection.
 Gateway reverse-proxies the JSON body unchanged and does **not** store keys
 (ADR-070). Pair file-store usage with a durable config volume:
 
@@ -101,7 +104,7 @@ Gateway reverse-proxies the JSON body unchanged and does **not** store keys
 |--------|--------|----------|
 | **Operator (when enabled)** | `emptyDir` by default | Abbenay **container** restart; lost on **pod** recycle. Check the operator guide for supported persistence options. |
 | **Podman (Linux)** | RW config `${XDG_CONFIG_HOME:-$HOME/.config}/abbenay/` | `tox -e down` / container restart / `tox -e wipe`; `secrets.json` is preserved. |
-| **Podman (macOS)** | Same hostPath; virtiofs | File store unsupported until [#562](https://github.com/ansible/apme/issues/562). Use env or memory. |
+| **Podman (macOS)** | Same hostPath; rootless virtiofs owner mapping | `tox -e down` / container restart / `tox -e wipe`; `secrets.json` is preserved. |
 
 **Inject a secret into the file store:**
 
@@ -143,7 +146,7 @@ the first write, the runtime file is the source of truth.
 | Deploy | Seed | Writable volume | Notes |
 |--------|------|-----------------|-------|
 | **Operator** | Operator-managed provider configuration | Writable config volume; persistence options are documented in [apme-operator](https://github.com/ansible/apme-operator) | The same writable volume holds file-store `secrets.json` (Abbenay ≥ v2026.8.6). |
-| **Podman** | `containers/abbenay/config/` (or legacy `config.yaml` / `.example`) on first `tox -e up` | Config dir `${XDG_CONFIG_HOME:-$HOME/.config}/abbenay/` → `/home/abbenay/.config/abbenay` | `up.sh` seeds into the user config path (mode `0700`/`0600`) and migrates the legacy cache path once. Rootful chowns the config copy to UID 1001; rootless Linux keeps host ownership and grants UID 1001 a POSIX ACL. macOS virtiofs cannot grant UID 1001 access to `secrets.json` without world-opening it — file store unsupported until [#562](https://github.com/ansible/apme/issues/562). The repo tree is never chowned. `tox -e wipe` preserves `config.yaml` and `secrets.json`. |
+| **Podman** | `containers/abbenay/config/` (or legacy `config.yaml` / `.example`) on first `tox -e up` | Config dir `${XDG_CONFIG_HOME:-$HOME/.config}/abbenay/` → `/home/abbenay/.config/abbenay` | `up.sh` seeds into the user config path (mode `0700`/`0600`) and migrates the legacy cache path once. Rootful chowns the config copy to UID 1001; rootless Linux keeps host ownership and grants UID 1001 a POSIX ACL; macOS requires rootless Podman and runs Abbenay as UID 0 so it maps to the Podman Machine owner. The repo tree is never chowned. `tox -e wipe` preserves `config.yaml` and `secrets.json`. |
 
 See [ADR-070](../../.sdlc/adrs/ADR-070-gateway-abbenay-admin-proxy.md) §6 (config durability) and §7 (secrets remain Abbenay SoT). For operator PVC and persistence options, see [apme-operator](https://github.com/ansible/apme-operator).
 

@@ -269,6 +269,11 @@ artifact type, translate it:
      MANUAL_REVIEW on the same node path)? Filters must be
      allowlists of the intended class, not "everything except X"
      — the latter silently includes unrelated classes.
+   - **Inventory name collisions** — when an inventory filter uses a
+     reserved-looking name or prefix, construct an unrelated valid item
+     with the same normalized name pattern. Prefer explicit provenance or
+     type metadata when available; a name prefix alone must not hide a
+     legitimate entry.
    - **Docstring vs deny-by-default** — if prose says "only when
      compatible" / "same class", the fallback branch must not return
      ``True`` unconditionally for unknown/sentinel sources.

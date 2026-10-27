@@ -2,7 +2,7 @@
 rule_id: P004
 validator: ansible
 description: Validate variables (Ansible required).
-scope: inventory
+scope: task
 status: delegated
 status_reason: >
   Emitted by the Ansible validator via argspec validation (L058/L059).

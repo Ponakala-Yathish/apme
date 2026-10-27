@@ -57,6 +57,12 @@ The registration mechanism reuses the existing engine → Gateway push channel (
 
 Built-in rules and plugin rules use the **same registration path**. No build-time injection, no separate mechanism. The Engine is the single source that reports everything it can execute.
 
+#### Delegated aliases
+
+Some documented IDs are aliases for checks emitted by another validator, rather than IDs that appear in scan findings themselves. The Engine also registers native rule documentation marked `status: delegated`, using its `validator` frontmatter as the `source` and setting `enabled=false`. This keeps aliases such as P001–P004 in the authoritative catalog and accepted by complete-catalog validation. The Gateway's default `/api/v1/rules` response includes these disabled entries; `enabled_only=true` filters them out.
+
+Delegated aliases are catalog metadata only. Rule configs are matched to the IDs emitted by validators, so enabling or overriding P001–P004 does not change L058/L059 findings. Configure L058/L059 to control those runtime checks.
+
 ### 2. Gateway reconciles on re-registration
 
 The Gateway treats each registration as the **complete current state** of the registering Engine's rule set. On re-registration (Engine restart, engine upgrade, plugin added/removed):
@@ -278,3 +284,4 @@ Deploying a plugin to one pod means deploying it to all pods. Removing a plugin 
 |------|--------|--------|
 | 2026-03-25 | Brad (cidrblock) | Initial proposal |
 | 2026-07-08 | Brad Thornton | Accepted — core decision fully implemented |
+| 2026-10-27 | Daniel Danielsson | Documented registration and override behavior for delegated rule aliases |

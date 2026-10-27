@@ -148,7 +148,7 @@ def test_up_sh_injects_ca_bundle_into_galaxy_proxy() -> None:
     )
     assert galaxy_match is not None
     galaxy_block = galaxy_match.group("body")
-    assert "      env:\n" in galaxy_block
+    assert galaxy_block.count("      env:\n") == 1, "CA bundle injection must not create a duplicate env: key"
 
     for env_var in ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SSL_CAINFO"):
         assert f"        - name: {env_var}\n          value: {quoted_mount}" in galaxy_block

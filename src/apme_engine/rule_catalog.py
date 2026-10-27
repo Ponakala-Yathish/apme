@@ -157,7 +157,11 @@ def _collect_native_rules() -> list[reporting_pb2.RuleDefinition]:
             )
         missing_disabled = DISABLED_BY_DEFAULT_GRAPH_RULE_IDS - loaded_ids
         if missing_disabled:
-            for fm_def in _collect_from_frontmatter(_GRAPH_RULES_DIR, "native"):
+            for fm_def in _collect_from_frontmatter(
+                _GRAPH_RULES_DIR,
+                "native",
+                exclude_status="delegated",
+            ):
                 if fm_def.rule_id in missing_disabled:
                     defs.append(
                         reporting_pb2.RuleDefinition(
@@ -178,18 +182,25 @@ def _collect_native_rules() -> list[reporting_pb2.RuleDefinition]:
             "Failed to collect native rules via load_graph_rules; falling back to frontmatter",
             exc_info=True,
         )
-        return _collect_from_frontmatter(_GRAPH_RULES_DIR, "native")
+        return _collect_from_frontmatter(
+            _GRAPH_RULES_DIR,
+            "native",
+            exclude_status="delegated",
+        )
 
 
 def _collect_from_frontmatter(
     directory: Path,
     source: str,
+    *,
+    exclude_status: str | None = None,
 ) -> list[reporting_pb2.RuleDefinition]:
     """Collect rules by parsing ``.md`` sidecar frontmatter.
 
     Args:
         directory: Directory containing ``.md`` rule documentation files.
         source: Validator name (e.g. ``opa``, ``ansible``).
+        exclude_status: Optional frontmatter status to skip.
 
     Returns:
         List of RuleDefinition protos parsed from frontmatter.
@@ -199,6 +210,8 @@ def _collect_from_frontmatter(
         return defs
     for md in sorted(directory.glob("*.md")):
         fm = _parse_frontmatter(md)
+        if exclude_status and fm.get("status") == exclude_status:
+            continue
         rule_id = fm.get("rule_id", "")
         if not rule_id:
             continue
@@ -220,6 +233,48 @@ def _collect_from_frontmatter(
             )
         )
     logger.info("Collected %d %s rules from frontmatter", len(defs), source)
+    return defs
+
+
+def _collect_delegated_rules() -> list[reporting_pb2.RuleDefinition]:
+    """Collect delegated rule aliases from native rule documentation.
+
+    Delegated IDs have no live ``GraphRule`` implementation, but remain
+    part of the public rule catalog. Their frontmatter names the validator
+    that owns the corresponding runtime checks.
+
+    Returns:
+        Disabled RuleDefinition protos for delegated rule aliases.
+    """
+    defs: list[reporting_pb2.RuleDefinition] = []
+    if not _GRAPH_RULES_DIR.is_dir():
+        return defs
+    for md in sorted(_GRAPH_RULES_DIR.glob("*.md")):
+        fm = _parse_frontmatter(md)
+        if fm.get("status") != "delegated":
+            continue
+        rule_id = fm.get("rule_id", "")
+        source = fm.get("validator", "")
+        if not rule_id or not source:
+            continue
+        scope_str = fm.get("scope", "task")
+        defs.append(
+            reporting_pb2.RuleDefinition(
+                rule_id=rule_id,
+                default_severity=severity_to_proto(get_severity(rule_id)),
+                category=_category_from_rule_id(rule_id),
+                source=source,
+                description=fm.get("description", ""),
+                scope=_SCOPE_TO_PROTO.get(
+                    scope_str,
+                    common_pb2.RULE_SCOPE_TASK,  # type: ignore[attr-defined]
+                )
+                or 0,
+                enabled=False,
+                ansible_core_version=get_version_spec_str(rule_id),
+            )
+        )
+    logger.info("Collected %d delegated rules from native frontmatter", len(defs))
     return defs
 
 
@@ -416,6 +471,14 @@ def collect_all_rules() -> list[reporting_pb2.RuleDefinition]:
     all_defs.extend(_collect_from_frontmatter(_OPA_BUNDLE_DIR, "opa"))
     all_defs.extend(_collect_from_frontmatter(_ANSIBLE_RULES_DIR, "ansible"))
     all_defs.extend(_collect_gitleaks_rules())
+
+    # Keep delegated aliases visible to Gateway catalog validation while
+    # preferring a live implementation if one has since been added.
+    known_ids = {rule.rule_id for rule in all_defs}
+    for rule in _collect_delegated_rules():
+        if rule.rule_id not in known_ids:
+            all_defs.append(rule)
+            known_ids.add(rule.rule_id)
 
     all_defs.sort(key=lambda d: d.rule_id)
     logger.info("Total rules collected: %d", len(all_defs))

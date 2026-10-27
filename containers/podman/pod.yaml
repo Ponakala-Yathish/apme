@@ -246,8 +246,8 @@ spec:
           hostPort: 8081
     - name: abbenay
       image: ghcr.io/redhat-developer/abbenay:v2026.8.9
-      # Local Podman: publish HTTP admin UI on host :8787. gRPC stays loopback
-      # (Unix socket for Engine). Operator deployment remains loopback-only (ADR-070).
+      # Local Podman: publish HTTP admin UI on host :8787. gRPC stays on the
+      # Unix socket. Operator deployment remains loopback-only (ADR-070).
       args:
         - "web"
         - "--host"
@@ -281,7 +281,7 @@ spec:
           hostPort: 8787
           hostIP: 127.0.0.1
         - containerPort: 50057
-          # no hostPort — Engine uses unix socket, not TCP
+          # no hostPort — pod-local TCP stays loopback-only; Engine and Gateway use the Unix socket.
       volumeMounts:
         - name: abbenay-config
           mountPath: /home/abbenay/.config/abbenay

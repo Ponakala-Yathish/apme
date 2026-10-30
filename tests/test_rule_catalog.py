@@ -667,9 +667,10 @@ def test_migrate_rules_table_adds_version_column_to_existing_catalog() -> None:
             version = conn.execute(text("SELECT ansible_core_version FROM rules WHERE rule_id = 'M001'")).scalar_one()
             assert version == ""
 
+            conn.execute(text("UPDATE rules SET ansible_core_version = '>=2.19' WHERE rule_id = 'M001'"))
             _migrate_rules_table(conn)
             version = conn.execute(text("SELECT ansible_core_version FROM rules WHERE rule_id = 'M001'")).scalar_one()
-            assert version == ""
+            assert version == ">=2.19"
     finally:
         engine.dispose()
 
@@ -684,10 +685,14 @@ async def test_migrate_rules_table_adds_version_column_to_legacy_postgresql_cata
         await conn.execute(text("CREATE TABLE rules (rule_id TEXT PRIMARY KEY)"))
         await conn.execute(text("INSERT INTO rules (rule_id) VALUES ('M001')"))
 
-        for _ in range(2):
-            await conn.run_sync(_migrate_rules_table)
-            version = await conn.scalar(text("SELECT ansible_core_version FROM rules WHERE rule_id = 'M001'"))
-            assert version == ""
+        await conn.run_sync(_migrate_rules_table)
+        version = await conn.scalar(text("SELECT ansible_core_version FROM rules WHERE rule_id = 'M001'"))
+        assert version == ""
+
+        await conn.execute(text("UPDATE rules SET ansible_core_version = '>=2.19' WHERE rule_id = 'M001'"))
+        await conn.run_sync(_migrate_rules_table)
+        version = await conn.scalar(text("SELECT ansible_core_version FROM rules WHERE rule_id = 'M001'"))
+        assert version == ">=2.19"
 
 
 @pytest.mark.asyncio  # type: ignore[untyped-decorator]
